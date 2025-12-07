@@ -11,7 +11,7 @@ from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
 
 class DouYin(BaseParser):
     """
-    抖音 / 抖音火山版
+    抖音 / 抖音火山版 更新优化不触发流水线
     """
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
