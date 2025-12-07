@@ -1,11 +1,13 @@
 import os
 import re
 import secrets
+# 引入 JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+# 确保你的 parser.py 文件在同级目录
 from parser import VideoSource, parse_video_id, parse_video_share_url
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from fastapi_mcp import FastApiMCP
@@ -13,34 +15,47 @@ from fastapi_mcp import FastApiMCP
 app = FastAPI()
 
 mcp = FastApiMCP(app)
-
 mcp.mount_http()
 
 templates = Jinja2Templates(directory="templates")
 
+# =========================================================
+# 鉴权配置
+# =========================================================
+MY_SECRET_KEY = os.getenv("API_SECRET_TOKEN", "wxd8f9c2a1b3_my_secret_pwd")
 
-def get_auth_dependency() -> list[Depends]:
-    """
-    根据环境变量动态返回 Basic Auth 依赖项
-    - 如果设置了 USERNAME 和 PASSWORD，返回验证函数
-    - 如果未设置，返回一个直接返回 None 的 Depends
-    """
+@app.middleware("http")
+async def verify_secret_header(request: Request, call_next):
+    # 白名单路径
+    if request.url.path in ["/", "/docs", "/openapi.json", "/favicon.ico"]:
+        return await call_next(request)
+
+    # 校验密码 (x-auth-token)
+    token = request.headers.get("x-auth-token")
+    if token != MY_SECRET_KEY:
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "Permission Denied: Invalid Secret Token"}
+        )
+
+    response = await call_next(request)
+    return response
+
+# =========================================================
+# 辅助函数 (去掉了可能导致报错的类型标注)
+# =========================================================
+def get_auth_dependency():
     basic_auth_username = os.getenv("PARSE_VIDEO_USERNAME")
     basic_auth_password = os.getenv("PARSE_VIDEO_PASSWORD")
 
     if not (basic_auth_username and basic_auth_password):
-        return []  # 返回包含Depends实例的列表
+        return []
 
     security = HTTPBasic()
 
     def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-        # 验证凭据
-        correct_username = secrets.compare_digest(
-            credentials.username, basic_auth_username
-        )
-        correct_password = secrets.compare_digest(
-            credentials.password, basic_auth_password
-        )
+        correct_username = secrets.compare_digest(credentials.username, basic_auth_username)
+        correct_password = secrets.compare_digest(credentials.password, basic_auth_password)
         if not (correct_username and correct_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -49,34 +64,34 @@ def get_auth_dependency() -> list[Depends]:
             )
         return credentials
 
-    return [Depends(verify_credentials)]  # 返回封装好的 Depends
+    return [Depends(verify_credentials)]
 
-
+# =========================================================
+# 路由
+# =========================================================
 @app.get("/", response_class=HTMLResponse, dependencies=get_auth_dependency())
 async def read_item(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "title": "github.com/wujunwei928/parse-video-py Demo",
+            "title": "Video Parser",
         },
     )
 
-
 @app.get("/video/share/url/parse", dependencies=get_auth_dependency())
 async def share_url_parse(url: str):
-    url_reg = re.compile(r"http[s]?:\/\/[\w.-]+[\w\/-]*[\w.-]*\??[\w=&:\-\+\%]*[/]*")
-    video_share_url = url_reg.search(url).group()
-
+    # 简化正则，防止报错
     try:
+        url_reg = re.compile(r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
+        match = url_reg.search(url)
+        video_share_url = match.group() if match else url
+
         video_info = await parse_video_share_url(video_share_url)
         return {"code": 200, "msg": "解析成功", "data": video_info.__dict__}
     except Exception as err:
-        return {
-            "code": 500,
-            "msg": str(err),
-        }
-
+        print(f"Error parsing URL: {err}") # 打印日志方便排查
+        return {"code": 500, "msg": str(err)}
 
 @app.get("/video/id/parse", dependencies=get_auth_dependency())
 async def video_id_parse(source: VideoSource, video_id: str):
@@ -84,11 +99,7 @@ async def video_id_parse(source: VideoSource, video_id: str):
         video_info = await parse_video_id(source, video_id)
         return {"code": 200, "msg": "解析成功", "data": video_info.__dict__}
     except Exception as err:
-        return {
-            "code": 500,
-            "msg": str(err),
-        }
-
+        return {"code": 500, "msg": str(err)}
 
 mcp.setup_server()
 
