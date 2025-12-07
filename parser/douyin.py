@@ -6,7 +6,7 @@ from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
 
 class DouYin(BaseParser):
     """
-    抖音解析器 (Live Photo 修复版)
+    抖音解析器 (Live Photo 修复版大改啊)
     """
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
