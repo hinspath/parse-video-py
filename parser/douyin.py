@@ -1,310 +1,265 @@
 import json
 import re
-import secrets
-import string
-from urllib.parse import parse_qs, urlparse
-
+import os
+import execjs
+from urllib.parse import parse_qs, urlparse, urlencode
 import httpx
-
 from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
 
+# 全局变量存储 Cookie
+GLOBAL_DY_COOKIE = ''
 
 class DouYin(BaseParser):
     """
-    抖音 / 抖音火山版 更新优化不触发流水线
+    抖音双模解析器
+    Mode A: V1 API (支持实况，需Cookie+签名)
+    Mode B: 原版 HTML解析 (兜底方案，无需Cookie，可能无实况)
     """
 
+    def __init__(self):
+        super().__init__()
+        self.js_ctx = self._load_js()
+
+    @classmethod
+    def update_cookie(cls, new_cookie):
+        global GLOBAL_DY_COOKIE
+        GLOBAL_DY_COOKIE = new_cookie.strip()
+        print(f"[Config] Cookie 已更新")
+
+    def _load_js(self):
+        """加载签名算法"""
+        try:
+            # 寻找 signer.js
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            paths = [
+                os.path.join(current_dir, "..", "signer.js"), 
+                os.path.join(current_dir, "signer.js"),
+                "signer.js"
+            ]
+            for p in paths:
+                if os.path.exists(p):
+                    with open(p, "r", encoding="utf-8") as f:
+                        return execjs.compile(f.read())
+            print("[WARN] signer.js 未找到，Mode A 将不可用")
+            return None
+        except: return None
+
+    def _sign(self, query, ua):
+        if not self.js_ctx: return ""
+        try: return self.js_ctx.call("get_sign", query, ua)
+        except: return ""
+
     async def parse_share_url(self, share_url: str) -> VideoInfo:
-        # 解析URL获取域名
-        parsed_url = urlparse(share_url)
-        host = parsed_url.netloc
+        # 1. 统一提取 Video ID
+        video_id = await self._extract_video_id(share_url)
+        if not video_id:
+            raise ValueError("无法解析视频 ID")
+        
+        print(f"[Main] Target ID: {video_id}")
 
-        if host in ["www.iesdouyin.com", "www.douyin.com"]:
-            # 支持电脑网页端链接
-            video_id = self._parse_video_id_from_path(share_url)
-            if not video_id:
-                raise ValueError("Failed to parse video ID from PC share URL")
-            share_url = self._get_request_url_by_video_id(video_id)
-        elif host == "v.douyin.com":
-            # 支持app分享链接 https://v.douyin.com/xxxxxx
-            video_id = await self._parse_app_share_url(share_url)
-            if not video_id:
-                raise ValueError("Failed to parse video ID from app share URL")
-            share_url = self._get_request_url_by_video_id(video_id)
+        # 2. 尝试 Mode A (API 强力模式)
+        if GLOBAL_DY_COOKIE:
+            try:
+                print("[Main] 正在尝试 Mode A (API解析)...")
+                return await self._parse_mode_a(video_id)
+            except Exception as e:
+                print(f"[Main] Mode A 失败 ({e})，正在切换到 Mode B...")
         else:
-            raise ValueError(f"Douyin not support this host: {host}")
+            print("[Main] 未设置 Cookie，直接使用 Mode B...")
 
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(share_url, headers=self.get_default_headers())
-            response.raise_for_status()
+        # 3. 尝试 Mode B (原版 HTML 兜底)
+        return await self._parse_mode_b(video_id)
 
-        # 检查是否是图集内容
-        is_note = self._is_note_content(response.text, share_url)
+    # =================================================================
+    # 工具：提取 ID
+    # =================================================================
+    async def _extract_video_id(self, url):
+        try:
+            # 如果链接本身包含ID
+            match = re.search(r'/(?:video|note|slides)/(\d+)', url)
+            if match: return match.group(1)
 
-        json_data = None
-        if is_note:
-            # 如果是图集，使用专门的API获取数据
-            json_data = await self._get_slides_info(video_id)
+            # 否则跟随跳转 (v.douyin.com)
+            headers = { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" }
+            async with httpx.AsyncClient(follow_redirects=True, timeout=10.0, headers=headers) as client:
+                resp = await client.get(url)
+                final_url = str(resp.url)
+            
+            match = re.search(r'/(?:video|note|slides)/(\d+)', final_url)
+            return match.group(1) if match else ""
+        except: return ""
 
-        if not json_data:
-            # 如果专用API失败或者不是图集，使用标准解析方式
-            pattern = re.compile(
-                pattern=r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
-                flags=re.DOTALL,
+    # =================================================================
+    # Mode A: API + 签名 (支持实况)
+    # =================================================================
+    async def _parse_mode_a(self, video_id):
+        PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        api_url = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
+        
+        params = {
+            "aweme_id": video_id,
+            "aid": "6383",
+            "device_platform": "webapp",
+            "pc_client_type": "1",
+            "version_code": "190500",
+            "version_name": "19.5.0",
+            "cookie_enabled": "true",
+            "platform": "PC",
+            "downlink": "10"
+        }
+        
+        query_str = urlencode(params)
+        abogus = self._sign(query_str, PC_UA)
+        final_url = f"{api_url}?{query_str}&a_bogus={abogus}"
+        
+        headers = {
+            "User-Agent": PC_UA,
+            "Cookie": GLOBAL_DY_COOKIE,
+            "Referer": "https://www.douyin.com/",
+            "Accept": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(final_url, headers=headers)
+            # 检查响应
+            if not resp.text or resp.status_code != 200:
+                raise ValueError("API Network Error")
+            try:
+                data = resp.json()
+            except:
+                raise ValueError("API returned non-JSON")
+
+        detail = data.get("aweme_detail")
+        if not detail: raise ValueError("Empty detail")
+
+        # 提取数据
+        images = []
+        if "images" in detail:
+            for img in detail["images"]:
+                url = img.get("url_list", [""])[0]
+                live = ""
+                if "video" in img: # V1接口实况在video字段
+                    v = img["video"]
+                    if "download_addr" in v: live = v["download_addr"]["url_list"][0]
+                    elif "play_addr" in v: live = v["play_addr"]["url_list"][0]
+                images.append(ImgInfo(url=url, live_photo_url=live))
+        
+        # 视频
+        video_url = ""
+        if not images and "video" in detail:
+             # V1 接口视频提取
+             if "play_addr" in detail["video"]:
+                 video_url = detail["video"]["play_addr"]["url_list"][0]
+
+        return VideoInfo(
+            video_url=video_url,
+            cover_url=detail.get("video", {}).get("cover", {}).get("url_list", [""])[0],
+            title=detail.get("desc", ""),
+            images=images,
+            author=VideoAuthor(
+                uid=detail.get("author", {}).get("sec_uid", ""),
+                name=detail.get("author", {}).get("nickname", ""),
+                avatar=detail.get("author", {}).get("avatar_thumb", {}).get("url_list", [""])[0]
             )
-            find_res = pattern.search(response.text)
+        )
 
-            if not find_res or not find_res.group(1):
-                raise ValueError("parse video json info from html fail")
+    # =================================================================
+    # Mode B: 原版 HTML 解析 (严格还原)
+    # =================================================================
+    async def _parse_mode_b(self, video_id):
+        print(f"[Main] 正在运行 Mode B (原版解析)... ID: {video_id}")
+        
+        # 1. 构造 iesdouyin 链接 (原版逻辑)
+        req_url = f"https://www.iesdouyin.com/share/video/{video_id}/"
+        
+        # 2. 发送请求 (原版 headers)
+        headers = {
+             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1"
+        }
+        
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            response = await client.get(req_url, headers=headers)
+            html = response.text
 
-            json_data = json.loads(find_res.group(1).strip())
+        # 3. 正则提取 (严格使用原版 regex)
+        pattern = re.compile(
+            pattern=r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
+            flags=re.DOTALL,
+        )
+        find_res = pattern.search(html)
 
-        # 处理不同的数据结构
+        if not find_res or not find_res.group(1):
+            raise ValueError("Mode B Failed: 无法从 HTML 提取 _ROUTER_DATA")
+
+        json_data = json.loads(find_res.group(1).strip())
+
+        # 4. 解析 loaderData (严格原版逻辑)
         data = None
-        if isinstance(json_data, dict) and "aweme_details" in json_data:
-            # 专用API返回的数据结构
-            if len(json_data["aweme_details"]) > 0:
-                data = json_data["aweme_details"][0]
-        elif isinstance(json_data, dict) and "loaderData" in json_data:
-            # 标准HTML解析返回的数据结构
-            VIDEO_ID_PAGE_KEY = "video_(id)/page"
-            NOTE_ID_PAGE_KEY = "note_(id)/page"
-
+        if isinstance(json_data, dict) and "loaderData" in json_data:
+            # 动态构建 Key，防止 ID 变化
+            video_key = f"video_({video_id})/page"
+            note_key = f"note_({video_id})/page"
+            
+            # 原版逻辑：检查 loaderData 里的 key
             original_video_info = None
-            if VIDEO_ID_PAGE_KEY in json_data["loaderData"]:
-                original_video_info = json_data["loaderData"][VIDEO_ID_PAGE_KEY][
-                    "videoInfoRes"
-                ]
-            elif NOTE_ID_PAGE_KEY in json_data["loaderData"]:
-                original_video_info = json_data["loaderData"][NOTE_ID_PAGE_KEY][
-                    "videoInfoRes"
-                ]
-            else:
-                raise Exception(
-                    "failed to parse Videos or Photo Gallery info from json"
-                )
+            
+            # 这里做一个模糊匹配，因为 sometimes ID 可能会有细微差别
+            # 或者直接遍历寻找 videoInfoRes
+            for key, val in json_data["loaderData"].items():
+                if isinstance(val, dict) and "videoInfoRes" in val:
+                    original_video_info = val["videoInfoRes"]
+                    break
+            
+            if not original_video_info:
+                raise ValueError("Mode B Failed: loaderData 中未找到 videoInfoRes")
 
-            # 如果没有视频信息，获取并抛出异常
             if len(original_video_info["item_list"]) == 0:
-                err_detail_msg = "failed to parse video info from HTML"
-                if len(filter_list := original_video_info["filter_list"]) > 0:
-                    err_detail_msg = filter_list[0]["detail_msg"]
-                raise Exception(err_detail_msg)
+                 raise ValueError("Mode B Failed: item_list 为空")
 
             data = original_video_info["item_list"][0]
         else:
-            raise Exception("Unknown data structure")
+            raise ValueError("Mode B Failed: 未知的数据结构")
 
-        if not data:
-            raise Exception("Failed to extract data from response")
-
-        # 获取图集图片地址
+        # 5. 提取内容
         images = []
-        # 如果data含有 images，并且 images 是一个列表
         if "images" in data and isinstance(data["images"], list):
-            # 获取每个图片的url_list中的第一个元素，优先获取非 .webp 格式的图片 url
             for img in data["images"]:
-                if (
-                    "url_list" in img
-                    and isinstance(img["url_list"], list)
-                    and len(img["url_list"]) > 0
-                ):
-                    image_url = self._get_no_webp_url(img["url_list"])
-                    if image_url:
-                        live_photo_url = ""
-                        if (
-                            "video" in img
-                            and "play_addr" in img["video"]
-                            and "url_list" in img["video"]["play_addr"]
-                        ):
-                            live_photo_url = (
-                                img["video"]["play_addr"]["url_list"][0]
-                                if img["video"]["play_addr"]["url_list"]
-                                else ""
-                            )
-                        images.append(
-                            ImgInfo(url=image_url, live_photo_url=live_photo_url)
-                        )
+                # 原版逻辑：获取第一个 url，且优先非 webp
+                url_list = img.get("url_list", [])
+                image_url = ""
+                for u in url_list:
+                    if u and not u.endswith(".webp"):
+                        image_url = u
+                        break
+                if not image_url and url_list: image_url = url_list[0]
+                
+                # Mode B 通常拿不到实况链接，这里保留基础提取
+                live = "" 
+                images.append(ImgInfo(url=image_url, live_photo_url=live))
 
-        # 获取视频播放地址
+        # 视频地址
         video_url = ""
-        if (
-            "video" in data
-            and "play_addr" in data["video"]
-            and "url_list" in data["video"]["play_addr"]
-        ):
-            video_url = data["video"]["play_addr"]["url_list"][0].replace(
-                "playwm", "play"
-            )
+        if not images and "video" in data:
+            play_addr = data["video"].get("play_addr", {})
+            if "url_list" in play_addr:
+                 video_url = play_addr["url_list"][0].replace("playwm", "play")
 
-        # 如果图集地址不为空时，因为没有视频，上面抖音返回的视频地址无法访问，置空处理
-        if len(images) > 0:
-            video_url = ""
-
-        # 获取重定向后的mp4视频地址
-        # 图集时，视频地址为空，不处理
-        video_mp4_url = ""
-        if len(video_url) > 0:
-            video_mp4_url = await self.get_video_redirect_url(video_url)
-
-        # 获取封面图片，优先获取非 .webp 格式的图片 url
-        cover_url = ""
-        if (
-            "video" in data
-            and "cover" in data["video"]
-            and "url_list" in data["video"]["cover"]
-        ):
-            cover_url = self._get_no_webp_url(data["video"]["cover"]["url_list"])
-
-        video_info = VideoInfo(
-            video_url=video_mp4_url,
-            cover_url=cover_url,
+        return VideoInfo(
+            video_url=video_url,
+            cover_url=data.get("video", {}).get("cover", {}).get("url_list", [""])[0],
             title=data.get("desc", ""),
             images=images,
             author=VideoAuthor(
                 uid=data.get("author", {}).get("sec_uid", ""),
                 name=data.get("author", {}).get("nickname", ""),
-                avatar=(
-                    data.get("author", {})
-                    .get("avatar_thumb", {})
-                    .get("url_list", [""])[0]
-                    if data.get("author", {}).get("avatar_thumb", {}).get("url_list")
-                    else ""
-                ),
-            ),
+                avatar=data.get("author", {}).get("avatar_thumb", {}).get("url_list", [""])[0]
+            )
         )
-        return video_info
 
-    async def get_video_redirect_url(self, video_url: str) -> str:
-        async with httpx.AsyncClient(follow_redirects=False) as client:
-            response = await client.get(video_url, headers=self.get_default_headers())
-        # 返回重定向后的地址，如果没有重定向则返回原地址(抖音中的西瓜视频,重定向地址为空)
-        return response.headers.get("location") or video_url
-
-    async def parse_video_id(self, video_id: str) -> VideoInfo:
-        req_url = self._get_request_url_by_video_id(video_id)
-        return await self.parse_share_url(req_url)
-
-    def _get_request_url_by_video_id(self, video_id) -> str:
-        return f"https://www.iesdouyin.com/share/video/{video_id}/"
-
-    async def _parse_app_share_url(self, share_url: str) -> str:
-        """解析app分享链接 https://v.douyin.com/xxxxxx"""
-        async with httpx.AsyncClient(follow_redirects=False) as client:
-            response = await client.get(share_url, headers=self.get_default_headers())
-
-        location = response.headers.get("location")
-        if not location:
-            return ""
-
-        # 检查是否是西瓜视频链接
-        if "ixigua.com" in location:
-            # 如果是西瓜视频，这里应该返回特殊处理，暂时返回空
-            # 在实际应用中可能需要调用西瓜视频解析器
-            return ""
-
-        return self._parse_video_id_from_path(location)
-
-    def _parse_video_id_from_path(self, url_path: str) -> str:
-        """从URL路径中解析视频ID"""
-        if not url_path:
-            return ""
-
-        try:
-            parsed_url = urlparse(url_path)
-
-            # 判断网页精选页面的视频
-            # https://www.douyin.com/jingxuan?modal_id=7555093909760789812
-            query_params = parse_qs(parsed_url.query)
-            if "modal_id" in query_params:
-                return query_params["modal_id"][0]
-
-            # 判断其他页面的视频
-            # https://www.iesdouyin.com/share/video/7424432820954598707/?region=CN&mid=7424432976273869622&u_code=0
-            # https://www.douyin.com/video/xxxxxx
-            path = parsed_url.path.strip("/")
-            if path:
-                path_parts = path.split("/")
-                if len(path_parts) > 0:
-                    return path_parts[-1]
-        except Exception:
-            pass
-
-        return ""
-
-    def _get_no_webp_url(self, url_list: list) -> str:
-        """优先获取非 .webp 格式的图片 url"""
-        if not url_list:
-            return ""
-
-        # 优先获取非 .webp 格式的图片 url
-        for url in url_list:
-            if url and not url.endswith(".webp"):
-                return url
-
-        # 如果没找到，使用第一项
-        return url_list[0] if url_list and url_list[0] else ""
-
-    def _is_note_content(self, html_content: str, share_url: str) -> bool:
-        """检查是否是图集内容"""
-        try:
-            # 方法1: 检查canonical URL是否包含/note/
-            pattern = re.compile(
-                r'<link[^>]*rel=["\']canonical["\'][^>]*href=["\']([^' r'"\']+)["\']',
-                re.IGNORECASE,
-            )
-            match = pattern.search(html_content)
-            if match:
-                canonical_url = match.group(1)
-                if "/note/" in canonical_url:
-                    return True
-
-            # 方法2: 检查URL路径是否包含note相关路径
-            parsed_url = urlparse(share_url)
-            if "/note/" in parsed_url.path:
-                return True
-
-            # 方法3: 检查HTML中是否有图集相关的标识
-            if "note_" in html_content or "图文" in html_content:
-                return True
-
-        except Exception:
-            pass
-
-        return False
-
-    async def _get_slides_info(self, video_id: str) -> dict:
-        """获取图集的详细信息，包括Live Photo"""
-        try:
-            # 生成web_id和a_bogus参数
-            web_id = "75" + self._generate_fixed_length_numeric_id(15)
-            a_bogus = self._rand_seq(64)
-
-            api_url = (
-                f"https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
-                f"?reflow_source=reflow_page"
-                f"&web_id={web_id}"
-                f"&device_id={web_id}"
-                f"&aweme_ids=%5B{video_id}%5D"
-                f"&request_source=200"
-                f"&a_bogus={a_bogus}"
-            )
-
-            async with httpx.AsyncClient() as client:
-                response = await client.get(api_url, headers=self.get_default_headers())
-                response.raise_for_status()
-
-            data = response.json()
-            return data if data.get("aweme_details") else None
-
-        except Exception:
-            return None
-
-    def _generate_fixed_length_numeric_id(self, length: int) -> str:
-        """生成固定位数的随机数字ID"""
-        return "".join(secrets.choice(string.digits) for _ in range(length))
-
-    def _rand_seq(self, n: int) -> str:
-        """生成随机字符串"""
-        chars = string.ascii_letters + string.digits
-        return "".join(secrets.choice(chars) for _ in range(n))
+    # 存根接口保持兼容
+    async def parse_video_id(self, v): return None
+    def _get_request_url_by_video_id(self, v): return ""
+    def _parse_video_id_from_path(self, p): return ""
+    async def _parse_app_share_url(self, s): return ""
+    def _get_no_webp_url(self, l): return l[0] if l else ""
+    def _is_note_content(self, h, s): return True
