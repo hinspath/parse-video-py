@@ -136,20 +136,34 @@ class DouYin(BaseParser):
         images = []
         if "images" in detail:
             for img in detail["images"]:
-                url = img.get("url_list", [""])[0]
+                # 图片地址
+                url = img.get("url_list", [""])[-1] # 取最后一个通常更高清
+                
+                # === 修复开始：实况图去水印逻辑 ===
                 live = ""
-                if "video" in img: # V1接口实况在video字段
+                if "video" in img: 
+                    # 实况图视频信息在 video 字段
                     v = img["video"]
-                    if "download_addr" in v: live = v["download_addr"]["url_list"][0]
-                    elif "play_addr" in v: live = v["play_addr"]["url_list"][0]
+                    # 优先取 play_addr，其次 download_addr
+                    # 关键点：必须使用 .replace("playwm", "play") 去除水印
+                    addr_info = v.get("play_addr") or v.get("download_addr")
+                    if addr_info and "url_list" in addr_info:
+                        url_list = addr_info["url_list"]
+                        if url_list:
+                            # 取最后一个链接，并替换 playwm 为 play
+                            live = url_list[-1].replace("playwm", "play")
+                # === 修复结束 ===
+
                 images.append(ImgInfo(url=url, live_photo_url=live))
         
         # 视频
         video_url = ""
         if not images and "video" in detail:
-             # V1 接口视频提取
+             # V1 接口视频提取，同样做去水印处理
              if "play_addr" in detail["video"]:
-                 video_url = detail["video"]["play_addr"]["url_list"][0]
+                 v_list = detail["video"]["play_addr"].get("url_list", [])
+                 if v_list:
+                     video_url = v_list[-1].replace("playwm", "play")
 
         return VideoInfo(
             video_url=video_url,
@@ -196,15 +210,10 @@ class DouYin(BaseParser):
         # 4. 解析 loaderData (严格原版逻辑)
         data = None
         if isinstance(json_data, dict) and "loaderData" in json_data:
-            # 动态构建 Key，防止 ID 变化
-            video_key = f"video_({video_id})/page"
-            note_key = f"note_({video_id})/page"
-            
             # 原版逻辑：检查 loaderData 里的 key
             original_video_info = None
             
-            # 这里做一个模糊匹配，因为 sometimes ID 可能会有细微差别
-            # 或者直接遍历寻找 videoInfoRes
+            # 模糊匹配寻找 videoInfoRes
             for key, val in json_data["loaderData"].items():
                 if isinstance(val, dict) and "videoInfoRes" in val:
                     original_video_info = val["videoInfoRes"]
@@ -233,8 +242,15 @@ class DouYin(BaseParser):
                         break
                 if not image_url and url_list: image_url = url_list[0]
                 
-                # Mode B 通常拿不到实况链接，这里保留基础提取
+                # === 修复开始：Mode B 也尝试获取实况 ===
                 live = "" 
+                if "video" in img:
+                    # 有时候 Mode B 数据里也有 video 字段
+                    play_addr = img["video"].get("play_addr", {}).get("url_list", [])
+                    if play_addr:
+                        live = play_addr[-1].replace("playwm", "play")
+                # === 修复结束 ===
+
                 images.append(ImgInfo(url=image_url, live_photo_url=live))
 
         # 视频地址
