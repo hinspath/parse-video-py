@@ -18,12 +18,7 @@ RUN node -v
 
 
 # 复制当前目录下的相关文件到容器的工作目录
-COPY ./parser /app/parser
-COPY ./templates /app/templates
-COPY ./utils /app/utils
-COPY ./requirements.txt /app/
-COPY ./main.py /app/
-
+COPY . /app
 
 # 安装 Python 应用程序所需的依赖包
 RUN pip install --no-cache-dir -r requirements.txt
