@@ -16,7 +16,7 @@ RUN apt-get update && \
 # 验证 Node.js 是否安装成功 (可选，用于调试构建日志)
 RUN node -v
 
-
+#修改一下触发流水线
 # 复制当前目录下的相关文件到容器的工作目录
 COPY . /app
 
