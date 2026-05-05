@@ -451,6 +451,7 @@ if (signature) {
             )
 
         if quality_entries:
+            quality_entries = self._keep_best_quality_per_height(quality_entries)
             quality_entries.sort(
                 key=lambda item: (item.height, item.bit_rate),
                 reverse=True,
@@ -475,6 +476,17 @@ if (signature) {
         if not urls:
             return ""
         return urls[-1].replace("playwm", "play")
+
+    def _keep_best_quality_per_height(
+        self, entries: list[VideoQuality]
+    ) -> list[VideoQuality]:
+        best_entries = {}
+        for entry in entries:
+            quality_key = entry.height or entry.gear_name or entry.quality_type or entry.url
+            current = best_entries.get(quality_key)
+            if current is None or entry.bit_rate > current.bit_rate:
+                best_entries[quality_key] = entry
+        return list(best_entries.values())
 
     def _get_video_quality_height(self, item: dict) -> int:
         gear_name = str(item.get("gear_name") or "")

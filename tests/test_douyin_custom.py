@@ -126,6 +126,14 @@ def test_aweme_detail_video_preserves_quality_options():
                         "url_list": ["https://example.com/playwm/720.mp4"]
                     },
                 },
+                {
+                    "gear_name": "720_4_1",
+                    "quality_type": 14,
+                    "bit_rate": 224820,
+                    "play_addr": {
+                        "url_list": ["https://example.com/playwm/720-low.mp4"]
+                    },
+                },
             ],
         },
     }
