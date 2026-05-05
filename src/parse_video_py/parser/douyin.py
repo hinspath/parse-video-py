@@ -116,8 +116,9 @@ class DouYin(BaseParser):
         if GLOBAL_DY_COOKIE:
             try:
                 return await self._parse_with_aweme_detail_api(video_id)
-            except Exception:
+            except Exception as err:
                 # Cookie / 签名 API 偶发失效时，继续使用作者新版 HTML 兜底逻辑。
+                print(f"[DouYin] Mode A failed, fallback to HTML: {err}")
                 pass
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -299,10 +300,12 @@ class DouYin(BaseParser):
 
     def _video_info_from_aweme_detail(self, detail: dict) -> VideoInfo:
         images = []
-        for img in detail.get("images") or []:
-            url = self._get_last_no_webp_url(img.get("url_list") or [])
+        for img in self._get_aweme_images(detail):
+            url = self._get_image_url(img)
             if url:
-                images.append(ImgInfo(url=url, live_photo_url=self._get_live_photo_url(img)))
+                images.append(
+                    ImgInfo(url=url, live_photo_url=self._get_live_photo_url(img))
+                )
 
         video_url = ""
         music_url = ""
@@ -333,6 +336,31 @@ class DouYin(BaseParser):
                 avatar=avatar_url,
             ),
         )
+
+    def _get_aweme_images(self, detail: dict) -> list[dict]:
+        image_sources = [
+            detail.get("images"),
+            detail.get("image_infos"),
+            (detail.get("image_post_info") or {}).get("images"),
+        ]
+        for images in image_sources:
+            if isinstance(images, list) and images:
+                return [img for img in images if isinstance(img, dict)]
+        return []
+
+    def _get_image_url(self, image_info: dict) -> str:
+        url_sources = [
+            image_info.get("url_list"),
+            (image_info.get("display_image") or {}).get("url_list"),
+            (image_info.get("owner_watermark_image") or {}).get("url_list"),
+            (image_info.get("no_watermark_image") or {}).get("url_list"),
+            (image_info.get("image") or {}).get("url_list"),
+        ]
+        for url_list in url_sources:
+            url = self._get_last_no_webp_url(url_list or [])
+            if url:
+                return url
+        return ""
 
     async def get_video_redirect_url(self, video_url: str) -> str:
         async with httpx.AsyncClient(follow_redirects=False) as client:
@@ -415,6 +443,14 @@ class DouYin(BaseParser):
         return url_list[-1] if url_list[-1] else ""
 
     def _get_live_photo_url(self, image_info: dict) -> str:
+        video = image_info.get("video") or {}
+        # 先按旧部署版逻辑取值：video.play_addr / video.download_addr 的最后一个 URL。
+        for key in ("play_addr", "download_addr"):
+            addr_info = video.get(key) or {}
+            url_list = addr_info.get("url_list") or []
+            if url_list:
+                return url_list[-1].replace("playwm", "play")
+
         def is_video_url(url: str) -> bool:
             return (
                 ".mp4" in url
@@ -438,8 +474,14 @@ class DouYin(BaseParser):
                     urls.extend(collect_urls(item))
             return urls
 
-        for source in (image_info.get("video"), image_info):
-            for url in reversed(collect_urls(source)):
+        # 兼容新接口把实况视频地址嵌在 video.bit_rate/play_addr 等更深层级的情况。
+        for url in reversed(collect_urls(video)):
+            if is_video_url(url):
+                return url.replace("playwm", "play")
+
+        for key in ("live_photo", "live_photo_url", "livePhotoUrl"):
+            url = image_info.get(key)
+            if isinstance(url, str) and url:
                 if is_video_url(url):
                     return url.replace("playwm", "play")
         return ""

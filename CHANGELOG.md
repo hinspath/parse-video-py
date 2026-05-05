@@ -2,6 +2,15 @@
 
 所有重要变更均会记录在此文件中。
 
+## [v1.1.3] - 2026-05-05
+
+### 修复
+
+- **按旧部署版逻辑恢复抖音实况图集解析**：优先使用 Cookie + `signer.js` 的 `aweme/detail` API，并按旧版方式从 `video.play_addr` / `video.download_addr` 提取 `live_photo_url`。
+- **兼容新图集结构**：支持 `image_post_info.images`、`display_image` 等字段，避免图片能解析但实况地址为空。
+
+---
+
 ## [v1.1.2] - 2026-05-05
 
 ### 修复

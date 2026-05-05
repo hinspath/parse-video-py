@@ -81,3 +81,38 @@ def test_aweme_detail_api_shape_preserves_live_photo_data():
         )
     ]
     assert result.author.name == "作者"
+
+
+def test_aweme_detail_image_post_info_preserves_live_photo_data():
+    parser = DouYin()
+    detail = {
+        "desc": "实况图集",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {
+                        "url_list": [
+                            "https://example.com/display.webp",
+                            "https://example.com/display.jpg",
+                        ]
+                    },
+                    "video": {
+                        "play_addr": {
+                            "url_list": ["https://example.com/playwm/live.mp4"]
+                        }
+                    },
+                }
+            ]
+        },
+        "video": {"cover": {"url_list": ["https://example.com/cover.jpg"]}},
+        "author": {"nickname": "作者"},
+    }
+
+    result = parser._video_info_from_aweme_detail(detail)
+
+    assert result.images == [
+        ImgInfo(
+            url="https://example.com/display.jpg",
+            live_photo_url="https://example.com/play/live.mp4",
+        )
+    ]
