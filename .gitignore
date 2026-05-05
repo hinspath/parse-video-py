@@ -168,3 +168,10 @@ uv.lock
 
 # codex
 .codex
+codex_git_tmp*/
+
+# production runtime data
+.runtime/
+public/uploads/error_domains.json
+run.sh
+*.bak.*

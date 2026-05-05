@@ -2,6 +2,25 @@
 
 所有重要变更均会记录在此文件中。
 
+## [v1.1.8] - 2026-05-05
+
+### 修复
+
+- **持久化抖音 Cookie**：页面更新 Cookie 后写入 `.runtime/douyin_cookie.txt`，PM2 重启后自动读取，避免重启后掉回无 Cookie 线路。
+- **恢复失败域名管理**：前端主页重新轮询 `/api/get_errors`，失败域名显示为 `https://域名`，支持单个删除和一键清空。
+- **完善生产部署文档**：README 增加 `/var/www/douyin`、PM2、nginx、Cookie 迁移和失败域名文件路径说明。
+
+---
+
+## [v1.1.7] - 2026-05-05
+
+### 修复
+
+- **恢复小程序旧接口兼容**：新增 `/api/parse`、`/api/analysis`、`/api/resolve_redirect`、`/api/get_errors`、`/api/report_error`，兼容旧小程序的 `x-api-key` 调用方式。
+- **兼容旧返回字段**：解析结果补充 `url`、`cover`、`local_url`、`local_live_photo_url`，避免小程序升级后取不到原有字段。
+
+---
+
 ## [v1.1.6] - 2026-05-05
 
 ### 修复

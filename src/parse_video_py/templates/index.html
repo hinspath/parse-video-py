@@ -2785,6 +2785,15 @@
                 <i class="mdui-icon material-icons">save</i> 更新 Cookie
             </button>
         </div>
+        <hr/>
+        <div class="mdui-card-content mdui-typo">
+            <h4>失败域名记录</h4>
+            <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-red mdui-m-b-1" onclick="clearErrorDomains()">
+                <i class="mdui-icon material-icons">delete_sweep</i> 一键清除
+            </button>
+            <p id="errorDomainStatus" style="font-size: 14px; opacity: 0.7;">正在加载...</p>
+            <div id="errorDomainList" class="mdui-chip-fluid"></div>
+        </div>
     </div>
 </main>
 
@@ -2996,6 +3005,121 @@ async function submitCookie() {
     }
 }
 
+async function loadErrorDomains() {
+    const list = document.getElementById('errorDomainList');
+    const status = document.getElementById('errorDomainStatus');
+    if (!list || !status) {
+        return;
+    }
+
+    try {
+        status.textContent = '正在刷新...';
+        const response = await fetch('/api/get_errors', {
+            cache: 'no-store'
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+
+        const data = await response.json();
+        const domains = Array.isArray(data) ? data : [];
+        status.textContent = domains.length ? ('共 ' + domains.length + ' 个域名，15 秒自动刷新') : '暂无失败域名，15 秒自动刷新';
+        list.innerHTML = '';
+
+        domains.forEach(function(domain) {
+            const chip = document.createElement('div');
+            chip.className = 'mdui-chip';
+            chip.style.margin = '4px';
+            chip.innerHTML = '<span class="mdui-chip-title"></span><button class="mdui-btn mdui-btn-icon mdui-ripple" title="删除"><i class="mdui-icon material-icons">close</i></button>';
+            chip.querySelector('.mdui-chip-title').textContent = formatErrorDomain(domain);
+            chip.querySelector('button').addEventListener('click', function() {
+                deleteErrorDomain(domain);
+            });
+            list.appendChild(chip);
+        });
+    } catch (error) {
+        console.error('失败域名加载失败:', error);
+        status.textContent = '失败域名加载失败：' + error.message;
+    }
+}
+
+function formatErrorDomain(domain) {
+    const text = String(domain || '').trim();
+    if (!text) {
+        return '';
+    }
+    return /^https?:\/\//i.test(text) ? text : 'https://' + text;
+}
+
+function getErrorDomainAuthHeaders() {
+    const token = getApiToken();
+    if (!token) {
+        mdui.snackbar({ message: '请先填写 API Token 后再操作失败域名列表' });
+        return null;
+    }
+    return {
+        'Content-Type': 'application/json',
+        'x-auth-token': token
+    };
+}
+
+async function deleteErrorDomain(domain) {
+    const headers = getErrorDomainAuthHeaders();
+    if (!headers) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/delete_error', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({ domain: domain })
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const result = await response.json();
+        if (result.code !== 200) {
+            throw new Error(result.msg || '删除失败');
+        }
+        mdui.snackbar({ message: '已删除 ' + formatErrorDomain(domain) });
+        loadErrorDomains();
+    } catch (error) {
+        console.error('删除失败域名失败:', error);
+        mdui.snackbar({ message: '删除失败：' + error.message });
+    }
+}
+
+async function clearErrorDomains() {
+    const headers = getErrorDomainAuthHeaders();
+    if (!headers) {
+        return;
+    }
+
+    if (!window.confirm('确定要清空全部失败域名记录吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/clear_errors', {
+            method: 'POST',
+            headers: headers
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const result = await response.json();
+        if (result.code !== 200) {
+            throw new Error(result.msg || '清空失败');
+        }
+        mdui.snackbar({ message: '失败域名记录已清空' });
+        loadErrorDomains();
+    } catch (error) {
+        console.error('清空失败域名失败:', error);
+        mdui.snackbar({ message: '清空失败：' + error.message });
+    }
+}
+
 // 新增清空输入框内容的函数
 function clearInput() {
     document.getElementById("url").value = "";
@@ -3196,6 +3320,9 @@ window.addEventListener('DOMContentLoaded', function() {
         tokenInput.value = localStorage.getItem('apiToken') || '';
         tokenInput.addEventListener('input', saveApiToken);
     }
+
+    loadErrorDomains();
+    setInterval(loadErrorDomains, 15000);
 
     // 小屏幕下自动折叠主题选择器
     if (window.innerWidth <= 600) {

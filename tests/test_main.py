@@ -1,10 +1,12 @@
 from fastapi.testclient import TestClient
 
+from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo
 from parse_video_py.parser import douyin
-from parse_video_py.web import app
+from parse_video_py import web
 
-client = TestClient(app)
+client = TestClient(web.app)
 AUTH_HEADERS = {"x-auth-token": "wxd8f9c2a1b3_my_secret_pwd"}
+MINIPROGRAM_HEADERS = {"x-api-key": "HinsCheung_Love_Video_Parser_2026_No_Copy"}
 
 
 def test_share_url_parse_requires_auth():
@@ -66,12 +68,166 @@ def test_update_cookie_api_rejects_wrong_password():
     assert response.json() == {"code": 403, "msg": "管理密码错误"}
 
 
-def test_update_cookie_api_updates_global_cookie():
-    response = client.post(
-        "/api/update_cookie",
-        json={"password": "WhatFuck.1", "cookie": "  ttwid=abc  "},
+def test_update_cookie_api_updates_global_cookie(monkeypatch, tmp_path):
+    cookie_file = tmp_path / "douyin_cookie.txt"
+    monkeypatch.setattr(web, "DOUYIN_COOKIE_FILE", cookie_file)
+    original_cookie = douyin.GLOBAL_DY_COOKIE
+    try:
+        response = client.post(
+            "/api/update_cookie",
+            json={"password": "WhatFuck.1", "cookie": "  ttwid=abc  "},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"code": 200, "msg": "Cookie 更新成功，已保存，重启后仍生效"}
+        assert cookie_file.read_text(encoding="utf-8") == "ttwid=abc"
+        assert douyin.GLOBAL_DY_COOKIE == "ttwid=abc"
+    finally:
+        douyin.GLOBAL_DY_COOKIE = original_cookie
+
+
+def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch):
+    async def fake_parse_video_share_url(url):
+        assert url == "https://v.douyin.com/test/"
+        return VideoInfo(
+            video_url="https://video.example/a.mp4",
+            cover_url="https://image.example/cover.jpg",
+            title="demo",
+            images=[
+                ImgInfo(
+                    url="https://image.example/1.jpg",
+                    live_photo_url="https://video.example/live.mp4",
+                )
+            ],
+            author=VideoAuthor(name="author", avatar="https://image.example/a.jpg"),
+        )
+
+    monkeypatch.setattr(web, "parse_video_share_url", fake_parse_video_share_url)
+
+    response = client.get(
+        "/api/parse",
+        params={"url": "https://v.douyin.com/test/"},
+        headers=MINIPROGRAM_HEADERS,
     )
 
     assert response.status_code == 200
-    assert response.json() == {"code": 200, "msg": "Cookie 更新成功"}
-    assert douyin.GLOBAL_DY_COOKIE == "ttwid=abc"
+    payload = response.json()
+    assert payload["code"] == 200
+    assert payload["data"]["video_url"] == "https://video.example/a.mp4"
+    assert payload["data"]["url"] == "https://video.example/a.mp4"
+    assert payload["data"]["cover"] == "https://image.example/cover.jpg"
+    assert payload["data"]["images"][0]["local_url"] == "https://image.example/1.jpg"
+    assert payload["data"]["images"][0]["local_live_photo_url"] == "https://video.example/live.mp4"
+
+
+def test_legacy_analysis_alias_accepts_miniprogram_api_key(monkeypatch):
+    async def fake_parse_video_share_url(url):
+        return VideoInfo(
+            video_url="https://video.example/a.mp4",
+            cover_url="",
+            title="demo",
+        )
+
+    monkeypatch.setattr(web, "parse_video_share_url", fake_parse_video_share_url)
+
+    response = client.get(
+        "/api/analysis",
+        params={"url": "https://v.douyin.com/test/"},
+        headers=MINIPROGRAM_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["url"] == "https://video.example/a.mp4"
+
+
+def test_legacy_resolve_redirect_uses_miniprogram_api_key(monkeypatch):
+    async def fake_resolve_redirect_url(url):
+        assert url == "https://video.example/a.mp4?x=1"
+        return "https://cdn.example/a.mp4?x=1"
+
+    monkeypatch.setattr(web, "_resolve_redirect_url", fake_resolve_redirect_url)
+
+    response = client.get(
+        "/api/resolve_redirect",
+        params={"url": "https://video.example/a.mp4?x=1"},
+        headers=MINIPROGRAM_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"code": 200, "url": "https://cdn.example/a.mp4?x=1"}
+
+
+def test_legacy_error_report_endpoints_use_miniprogram_api_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(web, "ERROR_REPORT_FILE", tmp_path / "error_domains.json")
+
+    empty_response = client.get("/api/get_errors", headers=MINIPROGRAM_HEADERS)
+    assert empty_response.status_code == 200
+    assert empty_response.json() == []
+
+    report_response = client.post(
+        "/api/report_error",
+        json={"domain": "https://v3-dy-o.zjcdn.com/path?a=1"},
+        headers=MINIPROGRAM_HEADERS,
+    )
+    duplicate_response = client.post(
+        "/api/report_error",
+        json={"domain": "v3-dy-o.zjcdn.com"},
+        headers=MINIPROGRAM_HEADERS,
+    )
+    list_response = client.get("/api/get_errors", headers=MINIPROGRAM_HEADERS)
+
+    assert report_response.status_code == 200
+    assert duplicate_response.status_code == 200
+    assert list_response.json() == ["v3-dy-o.zjcdn.com"]
+
+
+def test_legacy_get_errors_is_public(monkeypatch, tmp_path):
+    error_file = tmp_path / "error_domains.json"
+    error_file.write_text('["https://cdn.example.com/path"]', encoding="utf-8")
+    monkeypatch.setattr(web, "ERROR_REPORT_FILE", error_file)
+
+    response = client.get("/api/get_errors")
+
+    assert response.status_code == 200
+    assert response.json() == ["cdn.example.com"]
+
+
+def test_legacy_delete_error_requires_auth(monkeypatch, tmp_path):
+    error_file = tmp_path / "error_domains.json"
+    error_file.write_text('["cdn.example.com"]', encoding="utf-8")
+    monkeypatch.setattr(web, "ERROR_REPORT_FILE", error_file)
+
+    response = client.post("/api/delete_error", json={"domain": "cdn.example.com"})
+
+    assert response.status_code == 403
+
+
+def test_legacy_delete_error_removes_one_domain(monkeypatch, tmp_path):
+    error_file = tmp_path / "error_domains.json"
+    error_file.write_text(
+        '["cdn.example.com", "v3-dy-o.zjcdn.com"]',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(web, "ERROR_REPORT_FILE", error_file)
+
+    response = client.post(
+        "/api/delete_error",
+        json={"domain": "https://cdn.example.com/path"},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == ["v3-dy-o.zjcdn.com"]
+    assert client.get("/api/get_errors").json() == ["v3-dy-o.zjcdn.com"]
+
+
+def test_legacy_clear_errors_removes_all_domains(monkeypatch, tmp_path):
+    error_file = tmp_path / "error_domains.json"
+    error_file.write_text('["cdn.example.com"]', encoding="utf-8")
+    monkeypatch.setattr(web, "ERROR_REPORT_FILE", error_file)
+
+    response = client.post("/api/clear_errors", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []
+    assert client.get("/api/get_errors").json() == []
