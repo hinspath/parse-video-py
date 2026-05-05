@@ -1,8 +1,10 @@
+from urllib.parse import parse_qs, urlparse
+
 from fastapi.testclient import TestClient
 
-from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo, VideoQuality
-from parse_video_py.parser import douyin
 from parse_video_py import web
+from parse_video_py.parser import douyin
+from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo, VideoQuality
 
 client = TestClient(web.app)
 AUTH_HEADERS = {"x-auth-token": "wxd8f9c2a1b3_my_secret_pwd"}
@@ -124,10 +126,36 @@ def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch):
     assert payload["data"]["video_url"] == "https://video.example/a.mp4"
     assert payload["data"]["url"] == "https://video.example/a.mp4"
     assert payload["data"]["cover"] == "https://image.example/cover.jpg"
+    assert payload["data"]["download_url"].startswith(
+        "http://testserver/api/download?"
+    )
+    assert payload["data"]["cover_download_url"].startswith(
+        "http://testserver/api/download?"
+    )
     assert payload["data"]["qualities"][0]["label"] == "1080P"
     assert payload["data"]["qualities"][0]["url"] == "https://video.example/a-1080.mp4"
+    assert payload["data"]["qualities"][0]["download_url"].startswith(
+        "http://testserver/api/download?"
+    )
     assert payload["data"]["images"][0]["local_url"] == "https://image.example/1.jpg"
-    assert payload["data"]["images"][0]["local_live_photo_url"] == "https://video.example/live.mp4"
+    assert (
+        payload["data"]["images"][0]["local_live_photo_url"]
+        == "https://video.example/live.mp4"
+    )
+    assert payload["data"]["images"][0]["download_url"].startswith(
+        "http://testserver/api/download?"
+    )
+    assert payload["data"]["images"][0]["live_photo_download_url"].startswith(
+        "http://testserver/api/download?"
+    )
+
+    parsed_download = urlparse(payload["data"]["download_url"])
+    params = parse_qs(parsed_download.query)
+    assert web._verify_download_proxy_params(
+        params["u"][0],
+        int(params["e"][0]),
+        params["s"][0],
+    ) == "https://video.example/a.mp4"
 
 
 def test_legacy_analysis_alias_accepts_miniprogram_api_key(monkeypatch):
@@ -165,6 +193,18 @@ def test_legacy_resolve_redirect_uses_miniprogram_api_key(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"code": 200, "url": "https://cdn.example/a.mp4?x=1"}
+
+
+def test_download_proxy_rejects_bad_signature():
+    encoded_url = web._encode_download_url("https://video.example/a.mp4")
+
+    response = client.get(
+        "/api/download",
+        params={"u": encoded_url, "e": 4102444800, "s": "bad-signature"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["msg"] == "invalid download signature"
 
 
 def test_legacy_error_report_endpoints_use_miniprogram_api_key(monkeypatch, tmp_path):

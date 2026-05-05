@@ -1,12 +1,16 @@
+import base64
 import dataclasses
+import hashlib
+import hmac
 import json
 import os
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi_mcp import FastApiMCP
 from pydantic import BaseModel
@@ -50,6 +54,9 @@ DOUYIN_COOKIE_FILE = Path(
         str(Path.cwd() / ".runtime" / "douyin_cookie.txt"),
     )
 )
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+DOWNLOAD_PROXY_SECRET = os.getenv("DOWNLOAD_PROXY_SECRET", API_SECRET_TOKEN)
+DOWNLOAD_PROXY_TTL_SECONDS = int(os.getenv("DOWNLOAD_PROXY_TTL_SECONDS", "1800"))
 AUTH_WHITELIST = {
     "/",
     "/docs",
@@ -57,6 +64,7 @@ AUTH_WHITELIST = {
     "/redoc",
     "/favicon.ico",
     "/favicon.png",
+    "/api/download",
     "/api/get_errors",
     "/api/update_cookie",
 }
@@ -103,15 +111,17 @@ def _add_compat_fields(data: dict) -> dict:
     return data
 
 
-def _success_payload(video_info):
+def _success_payload(video_info, request: Request | None = None):
+    data = _add_compat_fields(dataclasses.asdict(video_info))
+    _add_download_proxy_fields(data, request)
     return {
         "code": 200,
         "msg": "解析成功",
-        "data": _add_compat_fields(dataclasses.asdict(video_info)),
+        "data": data,
     }
 
 
-async def _parse_share_url_payload(url: str):
+async def _parse_share_url_payload(url: str, request: Request | None = None):
     video_share_url = extract_url(url)
     if video_share_url is None:
         return {
@@ -121,7 +131,7 @@ async def _parse_share_url_payload(url: str):
 
     try:
         video_info = await parse_video_share_url(video_share_url)
-        return _success_payload(video_info)
+        return _success_payload(video_info, request)
     except Exception as err:
         return {
             "code": 500,
@@ -199,6 +209,99 @@ def _normalize_domain(value: str) -> str:
     return text.split("?", 1)[0].strip().lower()
 
 
+def _get_public_base_url(request: Request | None) -> str:
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+    if request is None:
+        return ""
+
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}".rstrip("/")
+
+
+def _encode_download_url(url: str) -> str:
+    return base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _decode_download_url(value: str) -> str:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}").decode("utf-8")
+
+
+def _sign_download_url(encoded_url: str, expires: int) -> str:
+    payload = f"{encoded_url}.{expires}".encode("utf-8")
+    secret = DOWNLOAD_PROXY_SECRET.encode("utf-8")
+    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
+
+
+def _build_download_proxy_url(url: str, request: Request | None) -> str:
+    if not url:
+        return ""
+
+    base_url = _get_public_base_url(request)
+    if not base_url:
+        return ""
+
+    encoded_url = _encode_download_url(url)
+    expires = int(time.time()) + DOWNLOAD_PROXY_TTL_SECONDS
+    signature = _sign_download_url(encoded_url, expires)
+    return f"{base_url}/api/download?u={encoded_url}&e={expires}&s={signature}"
+
+
+def _verify_download_proxy_params(encoded_url: str, expires: int, signature: str) -> str:
+    if expires < int(time.time()):
+        raise ValueError("download url expired")
+
+    expected_signature = _sign_download_url(encoded_url, expires)
+    if not hmac.compare_digest(signature, expected_signature):
+        raise ValueError("invalid download signature")
+
+    url = _decode_download_url(encoded_url)
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("invalid download url")
+
+    hostname = (parsed.hostname or "").lower()
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("invalid download host")
+
+    return url
+
+
+def _add_download_proxy_fields(data: dict, request: Request | None) -> None:
+    if request is None:
+        return
+
+    if data.get("video_url"):
+        data["download_url"] = _build_download_proxy_url(data["video_url"], request)
+    if data.get("cover_url"):
+        data["cover_download_url"] = _build_download_proxy_url(
+            data["cover_url"],
+            request,
+        )
+    if data.get("music_url"):
+        data["music_download_url"] = _build_download_proxy_url(
+            data["music_url"],
+            request,
+        )
+
+    for video in data.get("video_urls") or []:
+        if isinstance(video, dict) and video.get("url"):
+            video["download_url"] = _build_download_proxy_url(video["url"], request)
+
+    for image in data.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        if image.get("url"):
+            image["download_url"] = _build_download_proxy_url(image["url"], request)
+        if image.get("live_photo_url"):
+            image["live_photo_download_url"] = _build_download_proxy_url(
+                image["live_photo_url"],
+                request,
+            )
+
+
 async def _resolve_redirect_url(url: str) -> str:
     headers = {
         "User-Agent": (
@@ -272,14 +375,14 @@ async def update_cookie_api(params: CookieUpdateParams):
 
 
 @app.get("/video/share/url/parse")
-async def share_url_parse(url: str):
-    return await _parse_share_url_payload(url)
+async def share_url_parse(request: Request, url: str):
+    return await _parse_share_url_payload(url, request)
 
 
 @app.get("/api/parse")
 @app.get("/api/analysis")
-async def legacy_parse_api(url: str):
-    return await _parse_share_url_payload(url)
+async def legacy_parse_api(request: Request, url: str):
+    return await _parse_share_url_payload(url, request)
 
 
 @app.get("/api/resolve_redirect")
@@ -287,6 +390,81 @@ async def legacy_resolve_redirect_api(url: str):
     if not url:
         return {"code": 400, "msg": "missing url", "url": ""}
     return {"code": 200, "url": await _resolve_redirect_url(url)}
+
+
+@app.get("/api/download")
+async def proxy_download_api(request: Request, u: str, e: int, s: str):
+    try:
+        target_url = _verify_download_proxy_params(u, e, s)
+    except Exception as err:
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": str(err)},
+        )
+
+    request_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+            "Mobile/15E148 Safari/604.1"
+        ),
+        "Referer": "https://www.douyin.com/",
+    }
+    if request.headers.get("range"):
+        request_headers["Range"] = request.headers["range"]
+
+    client = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(60.0, read=None),
+    )
+    try:
+        upstream = await client.send(
+            client.build_request("GET", target_url, headers=request_headers),
+            stream=True,
+        )
+    except Exception as err:
+        await client.aclose()
+        return JSONResponse(
+            status_code=502,
+            content={"code": 502, "msg": f"download upstream failed: {err}"},
+        )
+
+    if upstream.status_code >= 400:
+        status_code = upstream.status_code
+        await upstream.aclose()
+        await client.aclose()
+        return JSONResponse(
+            status_code=status_code,
+            content={"code": status_code, "msg": "download upstream rejected"},
+        )
+
+    response_headers = {}
+    for header in (
+        "content-length",
+        "content-range",
+        "accept-ranges",
+        "cache-control",
+    ):
+        if upstream.headers.get(header):
+            response_headers[header] = upstream.headers[header]
+    response_headers["Content-Disposition"] = 'attachment; filename="download"'
+
+    media_type = upstream.headers.get("content-type") or "application/octet-stream"
+
+    async def stream_body():
+        try:
+            async for chunk in upstream.aiter_bytes(1024 * 256):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream_body(),
+        status_code=upstream.status_code,
+        headers=response_headers,
+        media_type=media_type,
+    )
 
 
 @app.get("/api/get_errors")
@@ -339,10 +517,10 @@ async def legacy_clear_errors_api():
 
 
 @app.get("/video/id/parse")
-async def video_id_parse(source: VideoSource, video_id: str):
+async def video_id_parse(request: Request, source: VideoSource, video_id: str):
     try:
         video_info = await parse_video_id(source, video_id)
-        return _success_payload(video_info)
+        return _success_payload(video_info, request)
     except Exception as err:
         return {
             "code": 500,

@@ -2,6 +2,15 @@
 
 所有重要变更均会记录在此文件中。
 
+## [v1.1.11] - 2026-05-05
+
+### 新增
+
+- **下载代理接口**：新增 `/api/download` 签名下载代理，小程序可统一通过自有域名下载视频、封面、图集和实况视频，减少微信合法下载域名维护成本。
+- **代理下载字段**：解析结果新增 `download_url`、`cover_download_url`、`qualities.[index].download_url`、`images.[index].download_url` 和 `images.[index].live_photo_download_url`。
+
+---
+
 ## [v1.1.10] - 2026-05-05
 
 ### 优化
