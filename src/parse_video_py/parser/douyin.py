@@ -3,6 +3,7 @@ import os
 import re
 import secrets
 import string
+import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -38,6 +39,7 @@ class DouYin(BaseParser):
 
     _js_ctx = None
     _js_load_attempted = False
+    _signer_path = None
 
     def __init__(self):
         super().__init__()
@@ -53,8 +55,6 @@ class DouYin(BaseParser):
             return self.__class__._js_ctx
 
         self.__class__._js_load_attempted = True
-        if execjs is None:
-            return None
 
         current_dir = Path(__file__).resolve().parent
         signer_paths = [
@@ -64,22 +64,73 @@ class DouYin(BaseParser):
         ]
         for signer_path in signer_paths:
             if signer_path.is_file():
+                self.__class__._signer_path = signer_path
+                if execjs is None:
+                    return None
                 try:
                     self.__class__._js_ctx = execjs.compile(
                         signer_path.read_text(encoding="utf-8")
                     )
                     return self.__class__._js_ctx
-                except Exception:
+                except Exception as err:
+                    print(f"[DouYin] execjs compile signer.js failed: {err}")
                     return None
         return None
 
     def _sign(self, query: str, user_agent: str) -> str:
-        if not self.js_ctx:
+        if self.js_ctx:
+            try:
+                signature = self.js_ctx.call("get_sign", query, user_agent)
+                if signature:
+                    return signature
+            except Exception as err:
+                print(f"[DouYin] execjs sign failed: {err}")
+
+        return self._sign_with_node(query, user_agent)
+
+    def _sign_with_node(self, query: str, user_agent: str) -> str:
+        signer_path = self.__class__._signer_path
+        if not signer_path or not signer_path.is_file():
+            self._load_js()
+            signer_path = self.__class__._signer_path
+
+        if not signer_path or not signer_path.is_file():
+            print("[DouYin] signer.js not found")
             return ""
+
+        node_code = """
+const fs = require('fs');
+const signerPath = process.argv[1];
+const query = process.argv[2];
+const ua = process.argv[3];
+const code = fs.readFileSync(signerPath, 'utf8');
+eval(code);
+if (typeof get_sign !== 'function') {
+  console.error('get_sign is not defined');
+  process.exit(2);
+}
+const signature = get_sign(query, ua);
+if (signature) {
+  process.stdout.write(signature);
+}
+"""
         try:
-            return self.js_ctx.call("get_sign", query, user_agent)
-        except Exception:
+            result = subprocess.run(
+                ["node", "-e", node_code, str(signer_path), query, user_agent],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=10,
+            )
+        except Exception as err:
+            print(f"[DouYin] node sign failed: {err}")
             return ""
+
+        if result.returncode != 0:
+            print(f"[DouYin] node sign failed: {result.stderr.strip()}")
+            return ""
+
+        return result.stdout.strip()
 
     @staticmethod
     def get_mobile_headers() -> dict:
