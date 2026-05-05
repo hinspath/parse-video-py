@@ -21,6 +21,11 @@ DOUYIN_PC_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/122.0.0.0 Safari/537.36"
 )
+DOUYIN_MOBILE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+    "Version/16.6 Mobile/15E148 Safari/604.1"
+)
 
 
 class DouYin(BaseParser):
@@ -76,6 +81,18 @@ class DouYin(BaseParser):
         except Exception:
             return ""
 
+    @staticmethod
+    def get_mobile_headers() -> dict:
+        return {
+            "User-Agent": DOUYIN_MOBILE_UA,
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/avif,image/webp,*/*;q=0.8"
+            ),
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Referer": "https://www.douyin.com/",
+        }
+
     async def parse_share_url(self, share_url: str) -> VideoInfo:
         # 解析URL获取域名
         parsed_url = urlparse(share_url)
@@ -104,7 +121,7 @@ class DouYin(BaseParser):
                 pass
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(share_url, headers=self.get_default_headers())
+            response = await client.get(share_url, headers=self.get_mobile_headers())
             response.raise_for_status()
 
         # 检查是否是图集内容
@@ -319,7 +336,7 @@ class DouYin(BaseParser):
 
     async def get_video_redirect_url(self, video_url: str) -> str:
         async with httpx.AsyncClient(follow_redirects=False) as client:
-            response = await client.get(video_url, headers=self.get_default_headers())
+            response = await client.get(video_url, headers=self.get_mobile_headers())
         # 返回重定向后的地址，如果没有重定向则返回原地址(抖音中的西瓜视频,重定向地址为空)
         return response.headers.get("location") or video_url
 
@@ -333,7 +350,7 @@ class DouYin(BaseParser):
     async def _parse_app_share_url(self, share_url: str) -> str:
         """解析app分享链接 https://v.douyin.com/xxxxxx"""
         async with httpx.AsyncClient(follow_redirects=False) as client:
-            response = await client.get(share_url, headers=self.get_default_headers())
+            response = await client.get(share_url, headers=self.get_mobile_headers())
 
         location = response.headers.get("location")
         if not location:
@@ -452,7 +469,7 @@ class DouYin(BaseParser):
             )
 
             async with httpx.AsyncClient() as client:
-                response = await client.get(api_url, headers=self.get_default_headers())
+                response = await client.get(api_url, headers=self.get_mobile_headers())
                 response.raise_for_status()
 
             data = response.json()
