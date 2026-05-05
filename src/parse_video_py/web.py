@@ -38,6 +38,7 @@ AUTH_WHITELIST = {
     "/openapi.json",
     "/redoc",
     "/favicon.ico",
+    "/favicon.png",
     "/api/update_cookie",
 }
 AUTH_WHITELIST_PREFIXES = ("/docs/", "/static/")

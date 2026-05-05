@@ -110,10 +110,16 @@ parse-video-py serve --port 8000
 parse-video-py version
 ```
 
-### 如需开启basic auth认证，请自行设置环境变量，不设置不开启，默认不开启
+### 接口鉴权与抖音 Cookie 配置
 ```shell
-export PARSE_VIDEO_USERNAME=username
-export PARSE_VIDEO_PASSWORD=password
+# 解析接口请求头 x-auth-token 的值；不设置时使用旧部署默认值
+export API_SECRET_TOKEN='wxd8f9c2a1b3_my_secret_pwd'
+
+# 页面 / API 更新抖音 Cookie 时使用的管理员密码；不设置时使用旧部署默认值
+export DOUYIN_COOKIE_UPDATE_PASSWORD='WhatFuck.1'
+
+# 可选：服务启动时预置抖音 Cookie，页面更新 Cookie 只更新当前进程内存
+export DOUYIN_COOKIE='你的完整抖音Cookie'
 ```
 
 ### 运行app
@@ -122,19 +128,23 @@ uvicorn parse_video_py.web:app --reload
 ```
 
 ## Docker运行
-### 获取 docker image
+### 构建当前仓库镜像
 ```bash
-docker pull wujunwei928/parse-video-py
+git clone --branch v1.1.6 --depth 1 https://github.com/hinspath/parse-video-py.git
+cd parse-video-py
+docker build -t parse-video-py:v1.1.6 .
 ```
 
 ### 运行 docker 容器, 端口 8000
 ```bash
-docker run -d -p 8000:8000 wujunwei928/parse-video-py
-```
-
-### 运行docker容器，开启basic auth认证
-```bash
-docker run -d -p 8000:8000 -e PARSE_VIDEO_USERNAME=username -e PARSE_VIDEO_PASSWORD=password wujunwei928/parse-video-py
+docker run -d \
+  --name parse-video-py \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e API_SECRET_TOKEN='wxd8f9c2a1b3_my_secret_pwd' \
+  -e DOUYIN_COOKIE_UPDATE_PASSWORD='WhatFuck.1' \
+  -e DOUYIN_COOKIE='你的完整抖音Cookie' \
+  parse-video-py:v1.1.6
 ```
 
 # 查看前端页面
@@ -142,7 +152,7 @@ docker run -d -p 8000:8000 -e PARSE_VIDEO_USERNAME=username -e PARSE_VIDEO_PASSW
 
 请求接口, 查看json返回
 ```bash
-curl 'http://127.0.0.1:8000/video/share/url/parse?url=视频分享链接' | jq
+curl -H 'x-auth-token: wxd8f9c2a1b3_my_secret_pwd' 'http://127.0.0.1:8000/video/share/url/parse?url=视频分享链接' | jq
 ```
 返回格式
 ```json
