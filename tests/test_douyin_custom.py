@@ -41,6 +41,13 @@ def test_live_photo_url_finds_nested_video_url():
     )
 
 
+def test_extract_signature_from_execjs_error_output():
+    parser = DouYin()
+    err_text = """(-6, '\n["ok","dJWhQRLDDE2PhD6f51/LfY3q6IN3Y8y30trEMD2fFdfZd639HMT09exoRpzvjUmjE4/0IeYjy4hbT3ohrQ2y8qwf9W0L/25gsDSkKl12so0j53inCLf/E0iE5hsAtFH8svr4iKi8owICSYyhldAJ5kIlO62-zo0/9IL="]\n', '')"""
+
+    assert parser._extract_signature_from_text(err_text).startswith("dJWhQR")
+
+
 def test_aweme_detail_api_shape_preserves_live_photo_data():
     parser = DouYin()
     detail = {

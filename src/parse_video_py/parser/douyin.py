@@ -84,9 +84,27 @@ class DouYin(BaseParser):
                 if signature:
                     return signature
             except Exception as err:
+                signature = self._extract_signature_from_text(str(err))
+                if signature:
+                    return signature
                 print(f"[DouYin] execjs sign failed: {err}")
 
         return self._sign_with_node(query, user_agent)
+
+    @staticmethod
+    def _extract_signature_from_text(text: str) -> str:
+        if not text:
+            return ""
+
+        match = re.search(r'\["ok",\s*"([^"]+)"\]', text)
+        if match:
+            return match.group(1)
+
+        stripped = text.strip()
+        if stripped.startswith("dy") or stripped.startswith("dJ"):
+            return stripped
+
+        return ""
 
     def _sign_with_node(self, query: str, user_agent: str) -> str:
         signer_path = self.__class__._signer_path
@@ -127,10 +145,17 @@ if (signature) {
             return ""
 
         if result.returncode != 0:
-            print(f"[DouYin] node sign failed: {result.stderr.strip()}")
+            signature = self._extract_signature_from_text(result.stdout)
+            if signature:
+                return signature
+            print(
+                "[DouYin] node sign failed: "
+                f"stdout={result.stdout.strip()} stderr={result.stderr.strip()}"
+            )
             return ""
 
-        return result.stdout.strip()
+        signature = self._extract_signature_from_text(result.stdout)
+        return signature or result.stdout.strip()
 
     @staticmethod
     def get_mobile_headers() -> dict:
