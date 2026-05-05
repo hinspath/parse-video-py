@@ -415,12 +415,33 @@ class DouYin(BaseParser):
         return url_list[-1] if url_list[-1] else ""
 
     def _get_live_photo_url(self, image_info: dict) -> str:
-        video = image_info.get("video") or {}
-        for key in ("play_addr", "download_addr"):
-            addr_info = video.get(key) or {}
-            url_list = addr_info.get("url_list") or []
-            if url_list:
-                return url_list[-1].replace("playwm", "play")
+        def is_video_url(url: str) -> bool:
+            return (
+                ".mp4" in url
+                or "/play" in url
+                or "playwm" in url
+                or "video_id=" in url
+            )
+
+        def collect_urls(value) -> list[str]:
+            urls = []
+            if isinstance(value, dict):
+                url_list = value.get("url_list")
+                if isinstance(url_list, list):
+                    urls.extend(
+                        item for item in url_list if isinstance(item, str) and item
+                    )
+                for item in value.values():
+                    urls.extend(collect_urls(item))
+            elif isinstance(value, list):
+                for item in value:
+                    urls.extend(collect_urls(item))
+            return urls
+
+        for source in (image_info.get("video"), image_info):
+            for url in reversed(collect_urls(source)):
+                if is_video_url(url):
+                    return url.replace("playwm", "play")
         return ""
 
     def _is_note_content(self, html_content: str, share_url: str) -> bool:

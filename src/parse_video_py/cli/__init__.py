@@ -17,7 +17,7 @@ def main():
 @app.command()
 def version():
     """显示版本信息"""
-    typer.echo("parse-video-py 1.1.1")
+    typer.echo("parse-video-py 1.1.2")
 
 
 @app.command()

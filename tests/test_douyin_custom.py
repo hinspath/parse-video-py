@@ -18,6 +18,29 @@ def test_live_photo_url_prefers_last_url_and_removes_watermark():
     assert parser._get_live_photo_url(image_info) == "https://example.com/play/high.mp4"
 
 
+def test_live_photo_url_finds_nested_video_url():
+    parser = DouYin()
+    image_info = {
+        "url_list": ["https://example.com/image.jpg"],
+        "video": {
+            "bit_rate": [
+                {
+                    "play_addr": {
+                        "url_list": [
+                            "https://example.com/live/playwm/?video_id=abc123"
+                        ]
+                    }
+                }
+            ]
+        },
+    }
+
+    assert (
+        parser._get_live_photo_url(image_info)
+        == "https://example.com/live/play/?video_id=abc123"
+    )
+
+
 def test_aweme_detail_api_shape_preserves_live_photo_data():
     parser = DouYin()
     detail = {

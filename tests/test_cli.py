@@ -14,7 +14,7 @@ class TestVersionCommand:
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
         assert "parse-video-py" in result.output
-        assert "1.1.1" in result.output
+        assert "1.1.2" in result.output
 
 
 class TestParseCommand:

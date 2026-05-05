@@ -2874,6 +2874,10 @@ function saveApiToken() {
     }
 }
 
+function getLivePhotoUrl(item) {
+    return item.live_photo_url || item.livePhotoUrl || item.live_photo || item.live_url || '';
+}
+
 // 原有的解析功能
 function setValue() {
     var data = document.getElementById("url").value;
@@ -2941,8 +2945,9 @@ function setValue() {
                 successHtml += '<div style="display: inline-block; margin: 1em; text-align: center;">';
                 successHtml += '<img src="' + item.url + '" style="width: 160px; display: block; margin-bottom: 0.5em;"/>';
                 // 如果 item.live_photo_url 不为空， 显示下载按钮
-                if (item.live_photo_url) {
-                    successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + item.live_photo_url + '" target="_blank" download="video" referrerpolicy="no-referrer" style="text-transform: none;"><span>下载LivePhoto</span></a>';
+                const livePhotoUrl = getLivePhotoUrl(item);
+                if (livePhotoUrl) {
+                    successHtml += '<a class="mdui-btn mdui-btn-raised mdui-color-pink-accent" href="' + livePhotoUrl + '" target="_blank" download="video" referrerpolicy="no-referrer" style="text-transform: none; margin-top: 0.5em;"><span>下载实况视频</span></a>';
                 }
 
                 successHtml += '</div>';
