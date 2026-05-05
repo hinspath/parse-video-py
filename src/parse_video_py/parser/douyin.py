@@ -1,18 +1,80 @@
 import json
+import os
 import re
 import secrets
 import string
-from urllib.parse import parse_qs, urlparse
+from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
+try:
+    import execjs
+except ImportError:  # pragma: no cover - Mode A 会自动降级到 HTML 解析
+    execjs = None
+
 from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
+
+GLOBAL_DY_COOKIE = os.getenv("DOUYIN_COOKIE", "").strip()
+DOUYIN_PC_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
 
 class DouYin(BaseParser):
     """
     抖音 / 抖音火山版
+
+    保留新版 HTML/图集兜底解析，并融合旧部署版的 Cookie + signer.js
+    强解析模式，用于抖音实况图和部分高清视频地址。
     """
+
+    _js_ctx = None
+    _js_load_attempted = False
+
+    def __init__(self):
+        super().__init__()
+        self.js_ctx = self._load_js()
+
+    @classmethod
+    def update_cookie(cls, new_cookie: str) -> None:
+        global GLOBAL_DY_COOKIE
+        GLOBAL_DY_COOKIE = new_cookie.strip()
+
+    def _load_js(self):
+        if self.__class__._js_load_attempted:
+            return self.__class__._js_ctx
+
+        self.__class__._js_load_attempted = True
+        if execjs is None:
+            return None
+
+        current_dir = Path(__file__).resolve().parent
+        signer_paths = [
+            current_dir.parent / "signer.js",
+            current_dir / "signer.js",
+            Path.cwd() / "signer.js",
+        ]
+        for signer_path in signer_paths:
+            if signer_path.is_file():
+                try:
+                    self.__class__._js_ctx = execjs.compile(
+                        signer_path.read_text(encoding="utf-8")
+                    )
+                    return self.__class__._js_ctx
+                except Exception:
+                    return None
+        return None
+
+    def _sign(self, query: str, user_agent: str) -> str:
+        if not self.js_ctx:
+            return ""
+        try:
+            return self.js_ctx.call("get_sign", query, user_agent)
+        except Exception:
+            return ""
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
         # 解析URL获取域名
@@ -33,6 +95,13 @@ class DouYin(BaseParser):
             share_url = self._get_request_url_by_video_id(video_id)
         else:
             raise ValueError(f"Douyin not support this host: {host}")
+
+        if GLOBAL_DY_COOKIE:
+            try:
+                return await self._parse_with_aweme_detail_api(video_id)
+            except Exception:
+                # Cookie / 签名 API 偶发失效时，继续使用作者新版 HTML 兜底逻辑。
+                pass
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(share_url, headers=self.get_default_headers())
@@ -111,19 +180,11 @@ class DouYin(BaseParser):
                 ):
                     image_url = self._get_no_webp_url(img["url_list"])
                     if image_url:
-                        live_photo_url = ""
-                        if (
-                            "video" in img
-                            and "play_addr" in img["video"]
-                            and "url_list" in img["video"]["play_addr"]
-                        ):
-                            live_photo_url = (
-                                img["video"]["play_addr"]["url_list"][0]
-                                if img["video"]["play_addr"]["url_list"]
-                                else ""
-                            )
                         images.append(
-                            ImgInfo(url=image_url, live_photo_url=live_photo_url)
+                            ImgInfo(
+                                url=image_url,
+                                live_photo_url=self._get_live_photo_url(img),
+                            )
                         )
 
         # 获取视频和音频播放地址
@@ -177,6 +238,84 @@ class DouYin(BaseParser):
             ),
         )
         return video_info
+
+    async def _parse_with_aweme_detail_api(self, video_id: str) -> VideoInfo:
+        if not self.js_ctx:
+            raise ValueError("signer.js is not available")
+
+        api_url = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
+        params = {
+            "aweme_id": video_id,
+            "aid": "6383",
+            "device_platform": "webapp",
+            "pc_client_type": "1",
+            "version_code": "190500",
+            "version_name": "19.5.0",
+            "cookie_enabled": "true",
+            "platform": "PC",
+            "downlink": "10",
+        }
+
+        query_str = urlencode(params)
+        a_bogus = self._sign(query_str, DOUYIN_PC_UA)
+        if not a_bogus:
+            raise ValueError("failed to sign Douyin API request")
+
+        headers = {
+            "User-Agent": DOUYIN_PC_UA,
+            "Cookie": GLOBAL_DY_COOKIE,
+            "Referer": "https://www.douyin.com/",
+            "Accept": "application/json",
+        }
+        final_url = f"{api_url}?{query_str}&a_bogus={a_bogus}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(final_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+        detail = data.get("aweme_detail")
+        if not detail:
+            raise ValueError("Douyin API returned empty detail")
+
+        return self._video_info_from_aweme_detail(detail)
+
+    def _video_info_from_aweme_detail(self, detail: dict) -> VideoInfo:
+        images = []
+        for img in detail.get("images") or []:
+            url = self._get_last_no_webp_url(img.get("url_list") or [])
+            if url:
+                images.append(ImgInfo(url=url, live_photo_url=self._get_live_photo_url(img)))
+
+        video_url = ""
+        music_url = ""
+        video = detail.get("video") or {}
+        play_addr = video.get("play_addr") or {}
+        if not images:
+            video_urls = play_addr.get("url_list") or []
+            if video_urls:
+                video_url = video_urls[-1].replace("playwm", "play")
+        else:
+            music_url = play_addr.get("uri", "")
+
+        cover_url = self._get_no_webp_url((video.get("cover") or {}).get("url_list") or [])
+        author = detail.get("author") or {}
+        avatar_url = self._get_no_webp_url(
+            (author.get("avatar_thumb") or {}).get("url_list") or []
+        )
+
+        return VideoInfo(
+            video_url=video_url,
+            cover_url=cover_url,
+            music_url=music_url,
+            title=detail.get("desc", ""),
+            images=images,
+            author=VideoAuthor(
+                uid=author.get("sec_uid", ""),
+                name=author.get("nickname", ""),
+                avatar=avatar_url,
+            ),
+        )
 
     async def get_video_redirect_url(self, video_url: str) -> str:
         async with httpx.AsyncClient(follow_redirects=False) as client:
@@ -247,6 +386,25 @@ class DouYin(BaseParser):
 
         # 如果没找到，使用第一项
         return url_list[0] if url_list and url_list[0] else ""
+
+    def _get_last_no_webp_url(self, url_list: list) -> str:
+        if not url_list:
+            return ""
+
+        for url in reversed(url_list):
+            if url and not url.endswith(".webp"):
+                return url
+
+        return url_list[-1] if url_list[-1] else ""
+
+    def _get_live_photo_url(self, image_info: dict) -> str:
+        video = image_info.get("video") or {}
+        for key in ("play_addr", "download_addr"):
+            addr_info = video.get(key) or {}
+            url_list = addr_info.get("url_list") or []
+            if url_list:
+                return url_list[-1].replace("playwm", "play")
+        return ""
 
     def _is_note_content(self, html_content: str, share_url: str) -> bool:
         """检查是否是图集内容"""

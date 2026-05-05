@@ -2744,7 +2744,7 @@
         <img class="mdui-img-circle mdui-center" style="width: 150px;" src="https://cdn.jsdelivr.net/gh/5ime/img/avatar.jpg"/>
         <h1 class='mdui-text-center'>在线短视频去水印解析</h1>
         <div class="mdui-typo">
-            <p><strong>目前支持: </strong>抖音/皮皮虾/火山/微视/最右/快手/全民小视频/皮皮搞笑/梨视频/西瓜/微博/虎牙/绿洲/好看/逗拍/美拍/新片场/A站/全民K歌/6间房</p>
+            <p><strong>目前支持: </strong>抖音/皮皮虾/火山/微视/最右/快手/全民小视频/皮皮搞笑/梨视频/西瓜/微博/虎牙/绿洲/好看/逗拍/美拍/新片场/A站/全民K歌/6间房/B站/X(推特)/腾讯视频/搜狐视频/CCTV</p>
             <p>
                 <strong>温馨提示: </strong><br/>
                 1. 粘贴视频地址时<u>无需删除文案</u><small> 但如果视频链接正确但解析失败请删掉文案后重试</small><br/>
@@ -2753,6 +2753,10 @@
             <hr/>
         </div>
         <div class="mdui-card-content mdui-typo">
+            <div class="mdui-textfield mdui-textfield-floating-label">
+                <label class="mdui-textfield-label">API Token</label>
+                <input class="mdui-textfield-input" type="password" id="apiToken" autocomplete="off" placeholder="用于 x-auth-token 请求头"/>
+            </div>
             <div class="mdui-textfield mdui-textfield-floating-label">
                 <input class="mdui-textfield-input" type="text" id="url" placeholder="请粘贴视频分享地址" required/>
                 <div class="mdui-textfield-error">
@@ -2765,6 +2769,22 @@
             </div>
         </div>
         <div class="down mdui-text-center"></div>
+        <hr/>
+        <div class="mdui-card-content mdui-typo">
+            <h4>抖音 Cookie 更新</h4>
+            <p style="font-size: 14px; opacity: 0.7;">当抖音实况图或高清视频解析失败时，可在这里更新 PC 端 Cookie，建议包含 ttwid。</p>
+            <div class="mdui-textfield mdui-textfield-floating-label">
+                <label class="mdui-textfield-label">管理员密码</label>
+                <input class="mdui-textfield-input" type="password" id="adminPwd" autocomplete="off" placeholder="输入密码以验证权限"/>
+            </div>
+            <div class="mdui-textfield mdui-textfield-floating-label">
+                <label class="mdui-textfield-label">完整 Cookie 字符串</label>
+                <textarea class="mdui-textfield-input" id="dyCookie" rows="3" placeholder="在此粘贴浏览器获取的 Cookie"></textarea>
+            </div>
+            <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-blue-grey mdui-m-t-2" onclick="submitCookie()">
+                <i class="mdui-icon material-icons">save</i> 更新 Cookie
+            </button>
+        </div>
     </div>
 </main>
 
@@ -2840,11 +2860,29 @@ function showThemeNotification(themeName) {
     }, 3000);
 }
 
+function getApiToken() {
+    const input = document.getElementById('apiToken');
+    return input ? input.value.trim() : '';
+}
+
+function saveApiToken() {
+    const token = getApiToken();
+    if (token) {
+        localStorage.setItem('apiToken', token);
+    } else {
+        localStorage.removeItem('apiToken');
+    }
+}
+
 // 原有的解析功能
 function setValue() {
     var data = document.getElementById("url").value;
-    let regex = /http[s]?:\/\/[\w.-]+[\w\/-]*[\w.-]*\??[\w=&:\-\+\%]*[/]*/;
-    var v = data.match(regex)[0];
+    var v = data.trim();
+    if (!v) {
+        mdui.snackbar({ message: '需要解析的视频地址不能为空' });
+        return;
+    }
+    saveApiToken();
     console.log(v);
 
     var xmlhttp;
@@ -2855,6 +2893,10 @@ function setValue() {
     }
 
     xmlhttp.open("GET", "/video/share/url/parse?url=" + encodeURIComponent(v), false);
+    const apiToken = getApiToken();
+    if (apiToken) {
+        xmlhttp.setRequestHeader("x-auth-token", apiToken);
+    }
     xmlhttp.send();
     var jsonObj = JSON.parse(xmlhttp.responseText);
     console.log(jsonObj);
@@ -2912,6 +2954,40 @@ function setValue() {
         mdui.snackbar({
             message: "解析失败,视频不存在或者链接不正确:<br/>" + jsonObj.msg
         });
+    }
+}
+
+async function submitCookie() {
+    const cookie = document.getElementById('dyCookie').value;
+    const password = document.getElementById('adminPwd').value;
+
+    if (!cookie || !password) {
+        mdui.snackbar({ message: 'Cookie 和密码不能为空' });
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/update_cookie', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                cookie: cookie,
+                password: password
+            })
+        });
+
+        const res = await response.json();
+        if (response.ok && res.code === 200) {
+            mdui.snackbar({ message: res.msg });
+            document.getElementById('adminPwd').value = '';
+        } else {
+            mdui.snackbar({ message: res.detail || res.msg || '更新失败' });
+        }
+    } catch (error) {
+        console.error('Cookie 更新失败:', error);
+        mdui.snackbar({ message: '网络错误，请检查控制台' });
     }
 }
 
@@ -3109,6 +3185,12 @@ document.head.appendChild(style);
 // 页面加载时应用保存的主题
 window.addEventListener('DOMContentLoaded', function() {
     setTheme(currentTheme);
+
+    const tokenInput = document.getElementById('apiToken');
+    if (tokenInput) {
+        tokenInput.value = localStorage.getItem('apiToken') || '';
+        tokenInput.addEventListener('input', saveApiToken);
+    }
 
     // 小屏幕下自动折叠主题选择器
     if (window.innerWidth <= 600) {

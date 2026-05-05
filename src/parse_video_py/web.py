@@ -1,15 +1,15 @@
 import dataclasses
 import os
-import secrets
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi_mcp import FastApiMCP
+from pydantic import BaseModel
 
 from parse_video_py import VideoSource, parse_video_id, parse_video_share_url
+from parse_video_py.parser.douyin import DouYin
 from parse_video_py.utils import extract_url
 
 
@@ -28,51 +28,72 @@ mcp.mount_http()
 
 templates = Jinja2Templates(directory=_get_templates_dir())
 
+API_SECRET_TOKEN = os.getenv("API_SECRET_TOKEN", "wxd8f9c2a1b3_my_secret_pwd")
+DOUYIN_COOKIE_UPDATE_PASSWORD = os.getenv(
+    "DOUYIN_COOKIE_UPDATE_PASSWORD", "WhatFuck.1"
+)
+AUTH_WHITELIST = {
+    "/",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/favicon.ico",
+    "/api/update_cookie",
+}
+AUTH_WHITELIST_PREFIXES = ("/docs/", "/static/")
 
-def _build_auth_dependency() -> list[Depends]:
-    """根据环境变量动态构建 Basic Auth 依赖项"""
-    basic_auth_username = os.getenv("PARSE_VIDEO_USERNAME")
-    basic_auth_password = os.getenv("PARSE_VIDEO_PASSWORD")
 
-    if not (basic_auth_username and basic_auth_password):
-        return []
+class CookieUpdateParams(BaseModel):
+    password: str
+    cookie: str
 
-    security = HTTPBasic()
 
-    def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-        correct_username = secrets.compare_digest(
-            credentials.username, basic_auth_username
+@app.middleware("http")
+async def verify_secret_header(request: Request, call_next):
+    path = request.url.path
+    if path in AUTH_WHITELIST or path.startswith(AUTH_WHITELIST_PREFIXES):
+        return await call_next(request)
+
+    token = request.headers.get("x-auth-token")
+    if token != API_SECRET_TOKEN:
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "鉴权失败：请在 Header 中提供正确的 x-auth-token"},
         )
-        correct_password = secrets.compare_digest(
-            credentials.password, basic_auth_password
-        )
-        if not (correct_username and correct_password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
-                headers={"WWW-Authenticate": "Basic"},
-            )
-        return credentials
 
-    return [Depends(verify_credentials)]
+    return await call_next(request)
 
 
-# 模块加载时构建一次，避免每个路由装饰器重复调用
-_auth_dependency = _build_auth_dependency()
-
-
-@app.get("/", response_class=HTMLResponse, dependencies=_auth_dependency)
+@app.get("/", response_class=HTMLResponse)
 async def read_item(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "title": "github.com/wujunwei928/parse-video-py Demo",
+            "title": "Video Parser",
         },
     )
 
 
-@app.get("/video/share/url/parse", dependencies=_auth_dependency)
+@app.post("/api/update_cookie")
+async def update_cookie_api(params: CookieUpdateParams):
+    if params.password != DOUYIN_COOKIE_UPDATE_PASSWORD:
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "管理密码错误"},
+        )
+
+    if not params.cookie.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"code": 400, "msg": "Cookie 不能为空"},
+        )
+
+    DouYin.update_cookie(params.cookie)
+    return {"code": 200, "msg": "Cookie 更新成功"}
+
+
+@app.get("/video/share/url/parse")
 async def share_url_parse(url: str):
     video_share_url = extract_url(url)
     if video_share_url is None:
@@ -95,7 +116,7 @@ async def share_url_parse(url: str):
         }
 
 
-@app.get("/video/id/parse", dependencies=_auth_dependency)
+@app.get("/video/id/parse")
 async def video_id_parse(source: VideoSource, video_id: str):
     try:
         video_info = await parse_video_id(source, video_id)
