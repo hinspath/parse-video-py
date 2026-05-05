@@ -68,6 +68,34 @@ class ImgInfo:
 
 
 @dataclasses.dataclass
+class VideoQuality:
+    """
+    视频清晰度信息
+    """
+
+    # 清晰度展示文案
+    label: str = ""
+
+    # 当前清晰度播放地址
+    url: str = ""
+
+    # 抖音原始清晰度档位名
+    gear_name: str = ""
+
+    # 抖音原始清晰度类型
+    quality_type: int = 0
+
+    # 码率
+    bit_rate: int = 0
+
+    # 宽度
+    width: int = 0
+
+    # 高度
+    height: int = 0
+
+
+@dataclasses.dataclass
 class VideoInfo:
     """
     视频信息
@@ -90,6 +118,9 @@ class VideoInfo:
 
     # 视频作者信息
     author: VideoAuthor = dataclasses.field(default_factory=VideoAuthor)
+
+    # 可选清晰度列表
+    video_urls: List[VideoQuality] = dataclasses.field(default_factory=list)
 
 
 class BaseParser(ABC):

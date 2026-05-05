@@ -2887,6 +2887,25 @@ function getLivePhotoUrl(item) {
     return item.live_photo_url || item.livePhotoUrl || item.live_photo || item.live_url || '';
 }
 
+function escapeHtml(text) {
+    return String(text || '').replace(/[&<>"']/g, function(char) {
+        return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[char];
+    });
+}
+
+function getVideoQualityList(data) {
+    const list = Array.isArray(data.video_urls) ? data.video_urls : (Array.isArray(data.qualities) ? data.qualities : []);
+    return list.filter(function(item) {
+        return item && item.url;
+    });
+}
+
 // 原有的解析功能
 function setValue() {
     var data = document.getElementById("url").value;
@@ -2923,8 +2942,18 @@ function setValue() {
         successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + jsonObj.data.cover_url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载封面</span></a>';
 
         // 如果video_url不为空, 则显示下载视频按钮
-        if (jsonObj.data.video_url != "") {
-            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + jsonObj.data.video_url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载视频</span></a>';
+        const videoQualities = getVideoQualityList(jsonObj.data);
+        if (videoQualities.length > 1) {
+            successHtml += '<div style="margin: 1em 0;">';
+            successHtml += '<h4 style="margin-bottom: 0.5em;">视频清晰度</h4>';
+            videoQualities.forEach(function(item, index) {
+                const label = escapeHtml(item.label || item.gear_name || ('清晰度 ' + (index + 1)));
+                successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + item.url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
+            });
+            successHtml += '</div>';
+        } else if (jsonObj.data.video_url != "") {
+            const label = videoQualities.length === 1 ? escapeHtml(videoQualities[0].label || '视频') : '视频';
+            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + jsonObj.data.video_url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
         }
 
         // 如果music_url不为空, 则显示下载音频按钮

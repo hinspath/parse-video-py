@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo
+from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo, VideoQuality
 from parse_video_py.parser import douyin
 from parse_video_py import web
 
@@ -93,6 +93,14 @@ def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch):
             video_url="https://video.example/a.mp4",
             cover_url="https://image.example/cover.jpg",
             title="demo",
+            video_urls=[
+                VideoQuality(
+                    label="1080P",
+                    url="https://video.example/a-1080.mp4",
+                    gear_name="normal_1080_0",
+                    bit_rate=668308,
+                )
+            ],
             images=[
                 ImgInfo(
                     url="https://image.example/1.jpg",
@@ -116,6 +124,8 @@ def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch):
     assert payload["data"]["video_url"] == "https://video.example/a.mp4"
     assert payload["data"]["url"] == "https://video.example/a.mp4"
     assert payload["data"]["cover"] == "https://image.example/cover.jpg"
+    assert payload["data"]["qualities"][0]["label"] == "1080P"
+    assert payload["data"]["qualities"][0]["url"] == "https://video.example/a-1080.mp4"
     assert payload["data"]["images"][0]["local_url"] == "https://image.example/1.jpg"
     assert payload["data"]["images"][0]["local_live_photo_url"] == "https://video.example/live.mp4"
 

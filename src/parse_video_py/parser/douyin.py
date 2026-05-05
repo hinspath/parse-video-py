@@ -14,7 +14,7 @@ try:
 except ImportError:  # pragma: no cover - Mode A 会自动降级到 HTML 解析
     execjs = None
 
-from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
+from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo, VideoQuality
 
 GLOBAL_DY_COOKIE = os.getenv("DOUYIN_COOKIE", "").strip()
 DOUYIN_PC_UA = (
@@ -284,12 +284,14 @@ if (signature) {
         # 获取视频和音频播放地址
         video_url = ""
         music_url = ""
-        if "video" in data and "play_addr" in data["video"]:
-            if "url_list" in data["video"]["play_addr"]:
-                video_url = data["video"]["play_addr"]["url_list"][0].replace(
+        video_qualities = []
+        video = data.get("video") or {}
+        if "play_addr" in video:
+            if "url_list" in video["play_addr"]:
+                video_url = video["play_addr"]["url_list"][0].replace(
                     "playwm", "play"
                 )
-            music_url = data["video"]["play_addr"].get("uri", "")
+            music_url = video["play_addr"].get("uri", "")
 
         # 如果图集地址不为空时，因为没有视频，上面抖音返回的视频地址无法访问，置空处理
         if len(images) > 0:
@@ -297,12 +299,17 @@ if (signature) {
         else:
             # 图集时, video.play_addr.uri 是音频地址; 视频时不是
             music_url = ""
+            video_qualities = self._get_video_quality_entries(video)
+            if video_qualities:
+                video_url = video_qualities[0].url
 
         # 获取重定向后的mp4视频地址
         # 图集时，视频地址为空，不处理
         video_mp4_url = ""
         if len(video_url) > 0:
             video_mp4_url = await self.get_video_redirect_url(video_url)
+            if video_qualities:
+                video_qualities[0].url = video_mp4_url
 
         # 获取封面图片，优先获取非 .webp 格式的图片 url
         cover_url = ""
@@ -330,6 +337,7 @@ if (signature) {
                     else ""
                 ),
             ),
+            video_urls=video_qualities,
         )
         return video_info
 
@@ -385,12 +393,17 @@ if (signature) {
 
         video_url = ""
         music_url = ""
+        video_qualities = []
         video = detail.get("video") or {}
         play_addr = video.get("play_addr") or {}
         if not images:
-            video_urls = play_addr.get("url_list") or []
-            if video_urls:
-                video_url = video_urls[-1].replace("playwm", "play")
+            video_qualities = self._get_video_quality_entries(video)
+            if video_qualities:
+                video_url = video_qualities[0].url
+            else:
+                video_urls = play_addr.get("url_list") or []
+                if video_urls:
+                    video_url = video_urls[-1].replace("playwm", "play")
         else:
             music_url = play_addr.get("uri", "")
 
@@ -411,7 +424,86 @@ if (signature) {
                 name=author.get("nickname", ""),
                 avatar=avatar_url,
             ),
+            video_urls=video_qualities,
         )
+
+    def _get_video_quality_entries(self, video: dict) -> list[VideoQuality]:
+        quality_entries = []
+        seen_urls = set()
+
+        for item in video.get("bit_rate") or []:
+            play_addr = item.get("play_addr") or {}
+            url = self._get_last_play_url(play_addr.get("url_list") or [])
+            if not url or url in seen_urls:
+                continue
+            height = self._get_video_quality_height(item)
+            seen_urls.add(url)
+            quality_entries.append(
+                VideoQuality(
+                    label=self._get_video_quality_label(item, height),
+                    url=url,
+                    gear_name=str(item.get("gear_name") or ""),
+                    quality_type=int(item.get("quality_type") or 0),
+                    bit_rate=int(item.get("bit_rate") or 0),
+                    width=int(item.get("width") or play_addr.get("width") or 0),
+                    height=height,
+                )
+            )
+
+        if quality_entries:
+            quality_entries.sort(
+                key=lambda item: (item.height, item.bit_rate),
+                reverse=True,
+            )
+            return quality_entries
+
+        play_addr = video.get("play_addr") or {}
+        url = self._get_last_play_url(play_addr.get("url_list") or [])
+        if not url:
+            return []
+
+        return [
+            VideoQuality(
+                label="默认",
+                url=url,
+                width=int(video.get("width") or play_addr.get("width") or 0),
+                height=int(video.get("height") or play_addr.get("height") or 0),
+            )
+        ]
+
+    def _get_last_play_url(self, urls: list[str]) -> str:
+        if not urls:
+            return ""
+        return urls[-1].replace("playwm", "play")
+
+    def _get_video_quality_height(self, item: dict) -> int:
+        gear_name = str(item.get("gear_name") or "")
+        height = int(item.get("height") or 0)
+
+        if not height:
+            match = re.search(r"(?<!\d)(540|720|1080|1440|2160)(?!\d)", gear_name)
+            if match:
+                height = int(match.group(1))
+
+        return height
+
+    def _get_video_quality_label(self, item: dict, height: int | None = None) -> str:
+        gear_name = str(item.get("gear_name") or "")
+        bit_rate = int(item.get("bit_rate") or 0)
+        height = height if height is not None else self._get_video_quality_height(item)
+
+        label_parts = []
+        if height:
+            label_parts.append(f"{height}P")
+        elif gear_name:
+            label_parts.append(gear_name)
+        else:
+            label_parts.append("默认")
+
+        if bit_rate:
+            label_parts.append(f"{round(bit_rate / 1000)}kbps")
+
+        return " · ".join(label_parts)
 
     def _get_aweme_images(self, detail: dict) -> list[dict]:
         image_sources = [

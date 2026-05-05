@@ -140,9 +140,9 @@ uvicorn parse_video_py.web:app --reload
 ## Docker运行
 ### 构建当前仓库镜像
 ```bash
-git clone --branch v1.1.8 --depth 1 https://github.com/hinspath/parse-video-py.git
+git clone --branch v1.1.9 --depth 1 https://github.com/hinspath/parse-video-py.git
 cd parse-video-py
-docker build -t parse-video-py:v1.1.8 .
+docker build -t parse-video-py:v1.1.9 .
 ```
 
 ### 运行 docker 容器, 端口 8000
@@ -158,7 +158,7 @@ docker run -d \
   -e ERROR_REPORT_FILE='/app/public/uploads/error_domains.json' \
   -v "$(pwd)/.runtime:/app/.runtime" \
   -v "$(pwd)/public/uploads:/app/public/uploads" \
-  parse-video-py:v1.1.8
+  parse-video-py:v1.1.9
 ```
 
 # 生产部署
@@ -194,7 +194,7 @@ npm install -g pm2
 
 ```bash
 rm -rf /var/www/douyin
-git clone --branch v1.1.8 https://github.com/hinspath/parse-video-py.git /var/www/douyin
+git clone --branch v1.1.9 https://github.com/hinspath/parse-video-py.git /var/www/douyin
 cd /var/www/douyin
 ```
 
@@ -407,7 +407,7 @@ cd /var/www/douyin
 
 cp -a run.sh run.sh.bak.$(date +%F-%H%M%S)
 git fetch --tags origin
-git checkout -f tags/v1.1.8
+git checkout -f tags/v1.1.9
 
 source venv/bin/activate
 pip install -r requirements.txt
@@ -448,6 +448,12 @@ curl -H 'x-auth-token: wxd8f9c2a1b3_my_secret_pwd' 'http://127.0.0.1:8000/video/
 | author.avatar | 视频作者头像 |
 | title | 视频标题 |
 | video_url | 视频无水印链接 |
+| video_urls | 视频清晰度列表，抖音普通视频可能返回多个 |
+| video_urls.[index].label | 清晰度展示文案，例如 `1080P · 668kbps` |
+| video_urls.[index].url | 当前清晰度视频地址 |
+| video_urls.[index].height | 当前清晰度高度，例如 `1080` |
+| video_urls.[index].bit_rate | 当前清晰度码率 |
+| qualities | `video_urls` 的兼容别名 |
 | music_url | 视频音乐链接 |
 | cover_url | 视频封面 |
 | images | 图集图片列表 |

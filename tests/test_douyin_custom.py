@@ -1,4 +1,4 @@
-from parse_video_py.parser.base import ImgInfo
+from parse_video_py.parser.base import ImgInfo, VideoQuality
 from parse_video_py.parser.douyin import DouYin
 
 
@@ -88,6 +88,77 @@ def test_aweme_detail_api_shape_preserves_live_photo_data():
         )
     ]
     assert result.author.name == "作者"
+
+
+def test_aweme_detail_video_preserves_quality_options():
+    parser = DouYin()
+    detail = {
+        "desc": "测试视频",
+        "video": {
+            "play_addr": {
+                "url_list": ["https://example.com/playwm/default.mp4"]
+            },
+            "bit_rate": [
+                {
+                    "gear_name": "normal_1080_0",
+                    "quality_type": 1,
+                    "bit_rate": 668308,
+                    "play_addr": {
+                        "url_list": [
+                            "https://example.com/playwm/1080-a.mp4",
+                            "https://example.com/playwm/1080-b.mp4",
+                        ]
+                    },
+                },
+                {
+                    "gear_name": "normal_540_0",
+                    "quality_type": 20,
+                    "bit_rate": 617941,
+                    "play_addr": {
+                        "url_list": ["https://example.com/playwm/540.mp4"]
+                    },
+                },
+                {
+                    "gear_name": "normal_720_0",
+                    "quality_type": 10,
+                    "bit_rate": 548868,
+                    "play_addr": {
+                        "url_list": ["https://example.com/playwm/720.mp4"]
+                    },
+                },
+            ],
+        },
+    }
+
+    result = parser._video_info_from_aweme_detail(detail)
+
+    assert result.video_url == "https://example.com/play/1080-b.mp4"
+    assert result.video_urls == [
+        VideoQuality(
+            label="1080P · 668kbps",
+            url="https://example.com/play/1080-b.mp4",
+            gear_name="normal_1080_0",
+            quality_type=1,
+            bit_rate=668308,
+            height=1080,
+        ),
+        VideoQuality(
+            label="720P · 549kbps",
+            url="https://example.com/play/720.mp4",
+            gear_name="normal_720_0",
+            quality_type=10,
+            bit_rate=548868,
+            height=720,
+        ),
+        VideoQuality(
+            label="540P · 618kbps",
+            url="https://example.com/play/540.mp4",
+            gear_name="normal_540_0",
+            quality_type=20,
+            bit_rate=617941,
+            height=540,
+        ),
+    ]
 
 
 def test_aweme_detail_image_post_info_preserves_live_photo_data():

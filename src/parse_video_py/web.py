@@ -89,6 +89,8 @@ def _add_compat_fields(data: dict) -> dict:
         data["url"] = data["video_url"]
     if data.get("cover_url") and not data.get("cover"):
         data["cover"] = data["cover_url"]
+    if data.get("video_urls") and not data.get("qualities"):
+        data["qualities"] = data["video_urls"]
 
     for image in data.get("images") or []:
         if not isinstance(image, dict):
@@ -340,11 +342,7 @@ async def legacy_clear_errors_api():
 async def video_id_parse(source: VideoSource, video_id: str):
     try:
         video_info = await parse_video_id(source, video_id)
-        return {
-            "code": 200,
-            "msg": "解析成功",
-            "data": dataclasses.asdict(video_info),
-        }
+        return _success_payload(video_info)
     except Exception as err:
         return {
             "code": 500,
