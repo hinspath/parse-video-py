@@ -1,6 +1,10 @@
 import dataclasses
+import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -29,8 +33,17 @@ mcp.mount_http()
 templates = Jinja2Templates(directory=_get_templates_dir())
 
 API_SECRET_TOKEN = os.getenv("API_SECRET_TOKEN", "wxd8f9c2a1b3_my_secret_pwd")
+MINIPROGRAM_API_KEY = os.getenv(
+    "MINIPROGRAM_API_KEY", "HinsCheung_Love_Video_Parser_2026_No_Copy"
+)
 DOUYIN_COOKIE_UPDATE_PASSWORD = os.getenv(
     "DOUYIN_COOKIE_UPDATE_PASSWORD", "WhatFuck.1"
+)
+ERROR_REPORT_FILE = Path(
+    os.getenv(
+        "ERROR_REPORT_FILE",
+        str(Path.cwd() / "public" / "uploads" / "error_domains.json"),
+    )
 )
 AUTH_WHITELIST = {
     "/",
@@ -49,14 +62,100 @@ class CookieUpdateParams(BaseModel):
     cookie: str
 
 
+def _request_is_authorized(request: Request) -> bool:
+    tokens = {value for value in (API_SECRET_TOKEN, MINIPROGRAM_API_KEY) if value}
+    return (
+        request.headers.get("x-auth-token") in tokens
+        or request.headers.get("x-api-key") in tokens
+    )
+
+
+def _add_compat_fields(data: dict) -> dict:
+    if data.get("video_url") and not data.get("url"):
+        data["url"] = data["video_url"]
+    if data.get("cover_url") and not data.get("cover"):
+        data["cover"] = data["cover_url"]
+
+    for image in data.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        if image.get("url") and not image.get("local_url"):
+            image["local_url"] = image["url"]
+        if image.get("live_photo_url") and not image.get("local_live_photo_url"):
+            image["local_live_photo_url"] = image["live_photo_url"]
+    return data
+
+
+def _success_payload(video_info):
+    return {"code": 200, "msg": "解析成功", "data": _add_compat_fields(dataclasses.asdict(video_info))}
+
+
+async def _parse_share_url_payload(url: str):
+    video_share_url = extract_url(url)
+    if video_share_url is None:
+        return {"code": 400, "msg": "未检测到有效的分享链接"}
+    try:
+        video_info = await parse_video_share_url(video_share_url)
+        return _success_payload(video_info)
+    except Exception as err:
+        return {"code": 500, "msg": str(err)}
+
+
+def _normalize_domain(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if "://" in text:
+        parsed = urlparse(text)
+        text = parsed.netloc or parsed.path
+    else:
+        text = text.split("/", 1)[0]
+    return text.split("?", 1)[0].strip().lower()
+
+
+def _read_error_domains() -> list[str]:
+    try:
+        if not ERROR_REPORT_FILE.exists():
+            return []
+        raw = json.loads(ERROR_REPORT_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    domains = []
+    for item in raw:
+        domain = _normalize_domain(item if isinstance(item, str) else str((item or {}).get("domain", "")))
+        if domain and domain not in domains:
+            domains.append(domain)
+    return domains
+
+
+def _write_error_domains(domains: list[str]) -> None:
+    ERROR_REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ERROR_REPORT_FILE.write_text(json.dumps(domains, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+async def _resolve_redirect_url(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Range": "bytes=0-0",
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            response = await client.get(url, headers=headers)
+            return str(response.url)
+    except Exception:
+        return url
+
+
 @app.middleware("http")
 async def verify_secret_header(request: Request, call_next):
     path = request.url.path
     if path in AUTH_WHITELIST or path.startswith(AUTH_WHITELIST_PREFIXES):
         return await call_next(request)
 
-    token = request.headers.get("x-auth-token")
-    if token != API_SECRET_TOKEN:
+    if not _request_is_authorized(request):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "鉴权失败：请在 Header 中提供正确的 x-auth-token"},
@@ -96,25 +195,46 @@ async def update_cookie_api(params: CookieUpdateParams):
 
 @app.get("/video/share/url/parse")
 async def share_url_parse(url: str):
-    video_share_url = extract_url(url)
-    if video_share_url is None:
-        return {
-            "code": 400,
-            "msg": "未检测到有效的分享链接",
-        }
+    return await _parse_share_url_payload(url)
 
+
+@app.get("/api/parse")
+@app.get("/api/analysis")
+async def legacy_parse_api(url: str):
+    return await _parse_share_url_payload(url)
+
+
+@app.get("/api/resolve_redirect")
+async def legacy_resolve_redirect_api(url: str):
+    if not url:
+        return {"code": 400, "msg": "missing url", "url": ""}
+    return {"code": 200, "url": await _resolve_redirect_url(url)}
+
+
+@app.get("/api/get_errors")
+async def legacy_get_errors_api():
+    return _read_error_domains()
+
+
+@app.post("/api/report_error")
+async def legacy_report_error_api(request: Request):
     try:
-        video_info = await parse_video_share_url(video_share_url)
-        return {
-            "code": 200,
-            "msg": "解析成功",
-            "data": dataclasses.asdict(video_info),
-        }
-    except Exception as err:
-        return {
-            "code": 500,
-            "msg": str(err),
-        }
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    domain = _normalize_domain(
+        str(payload.get("domain") or payload.get("url") or request.query_params.get("domain") or "")
+    )
+    if not domain:
+        return {"code": 400, "msg": "missing domain"}
+
+    domains = _read_error_domains()
+    if domain not in domains:
+        domains.append(domain)
+        _write_error_domains(domains)
+
+    return {"code": 200, "msg": "ok"}
 
 
 @app.get("/video/id/parse")
