@@ -132,6 +132,10 @@ export DOWNLOAD_PROXY_MODE_FILE='/var/www/douyin/.runtime/download_proxy_mode.js
 # 页面 / API 更新抖音 Cookie 时使用的管理员密码；不设置时使用旧部署默认值
 export DOUYIN_COOKIE_UPDATE_PASSWORD='WhatFuck.1'
 
+# /admin 页面提前鉴权账号密码；不设置时账号使用旧部署默认邮箱，密码复用上面的管理员密码
+export ADMIN_USERNAME='hinspath@gmail.com'
+export ADMIN_PASSWORD='WhatFuck.1'
+
 # 可选：服务启动时预置抖音 Cookie；生产部署推荐使用 DOUYIN_COOKIE_FILE 持久化
 export DOUYIN_COOKIE='你的完整抖音Cookie'
 
@@ -268,6 +272,8 @@ export LC_ALL=C.UTF-8
 export API_SECRET_TOKEN='wxd8f9c2a1b3_my_secret_pwd'
 export MINIPROGRAM_API_KEY='HinsCheung_Love_Video_Parser_2026_No_Copy'
 export DOUYIN_COOKIE_UPDATE_PASSWORD='WhatFuck.1'
+export ADMIN_USERNAME='hinspath@gmail.com'
+export ADMIN_PASSWORD='WhatFuck.1'
 export DOUYIN_COOKIE_FILE='/var/www/douyin/.runtime/douyin_cookie.txt'
 export ERROR_REPORT_FILE='/var/www/douyin/public/uploads/error_domains.json'
 export PUBLIC_BASE_URL='https://douyin.hins.top'

@@ -43,6 +43,8 @@ MINIPROGRAM_API_KEY = os.getenv(
 DOUYIN_COOKIE_UPDATE_PASSWORD = os.getenv(
     "DOUYIN_COOKIE_UPDATE_PASSWORD", "WhatFuck.1"
 )
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "hinspath@gmail.com")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", DOUYIN_COOKIE_UPDATE_PASSWORD)
 ERROR_REPORT_FILE = Path(
     os.getenv(
         "ERROR_REPORT_FILE",
@@ -133,6 +135,38 @@ def _admin_password_is_valid(password: str) -> bool:
     if not password:
         return False
     return hmac.compare_digest(password, DOUYIN_COOKIE_UPDATE_PASSWORD)
+
+
+def _admin_basic_auth_is_valid(request: Request) -> bool:
+    auth_header = (request.headers.get("authorization") or "").strip()
+    if not auth_header.lower().startswith("basic "):
+        return False
+
+    try:
+        decoded = base64.b64decode(auth_header.split(" ", 1)[1]).decode("utf-8")
+    except Exception:
+        return False
+
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return False
+
+    return hmac.compare_digest(username, ADMIN_USERNAME) and hmac.compare_digest(
+        password,
+        ADMIN_PASSWORD,
+    )
+
+
+def _admin_request_is_authorized(request: Request, password: str = "") -> bool:
+    return _admin_basic_auth_is_valid(request) or _admin_password_is_valid(password)
+
+
+def _admin_basic_auth_response() -> HTMLResponse:
+    return HTMLResponse(
+        status_code=401,
+        content="<h1>401 Authorization Required</h1>",
+        headers={"WWW-Authenticate": 'Basic realm="Video Parser Admin", charset="UTF-8"'},
+    )
 
 
 def _supported_cookie_platforms() -> tuple[str, ...]:
@@ -607,6 +641,9 @@ async def read_item(request: Request):
 
 @app.get("/admin", response_class=HTMLResponse)
 async def read_admin(request: Request):
+    if not _admin_basic_auth_is_valid(request):
+        return _admin_basic_auth_response()
+
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
@@ -617,8 +654,8 @@ async def read_admin(request: Request):
 
 
 @app.post("/api/update_cookie")
-async def update_cookie_api(params: CookieUpdateParams):
-    if params.password != DOUYIN_COOKIE_UPDATE_PASSWORD:
+async def update_cookie_api(request: Request, params: CookieUpdateParams):
+    if not _admin_request_is_authorized(request, params.password):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "管理密码错误"},
@@ -643,13 +680,20 @@ async def update_cookie_api(params: CookieUpdateParams):
 
 
 @app.get("/api/platform_cookies/status")
-async def get_platform_cookies_status_api():
+async def get_platform_cookies_status_api(request: Request):
+    if not _request_is_authorized(request) and not _admin_basic_auth_is_valid(request):
+        return JSONResponse(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Video Parser Admin"'},
+            content={"code": 401, "msg": "auth required"},
+        )
+
     return {"code": 200, "msg": "ok", "data": _platform_cookie_status()}
 
 
 @app.post("/api/platform_cookies")
-async def update_platform_cookies_api(params: PlatformCookieUpdateParams):
-    if not _admin_password_is_valid(params.password):
+async def update_platform_cookies_api(request: Request, params: PlatformCookieUpdateParams):
+    if not _admin_request_is_authorized(request, params.password):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "管理密码错误"},
@@ -679,7 +723,10 @@ async def get_download_proxy_mode_api():
 
 @app.post("/api/download_proxy_mode")
 async def update_download_proxy_mode_api(request: Request, params: DownloadProxyModeParams):
-    if not _request_is_authorized(request) and not _admin_password_is_valid(params.password):
+    if not _request_is_authorized(request) and not _admin_request_is_authorized(
+        request,
+        params.password,
+    ):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "auth failed"},
@@ -887,7 +934,10 @@ async def legacy_report_error_api(request: Request):
 
 @app.post("/api/delete_error")
 async def legacy_delete_error_api(request: Request, params: ErrorDomainParams):
-    if not _request_is_authorized(request) and not _admin_password_is_valid(params.password):
+    if not _request_is_authorized(request) and not _admin_request_is_authorized(
+        request,
+        params.password,
+    ):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "auth failed"},
@@ -905,7 +955,10 @@ async def legacy_delete_error_api(request: Request, params: ErrorDomainParams):
 
 @app.post("/api/clear_errors")
 async def legacy_clear_errors_api(request: Request, params: AdminPasswordParams):
-    if not _request_is_authorized(request) and not _admin_password_is_valid(params.password):
+    if not _request_is_authorized(request) and not _admin_request_is_authorized(
+        request,
+        params.password,
+    ):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "auth failed"},

@@ -1,3 +1,4 @@
+import base64
 from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,28 @@ from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo, VideoQua
 client = TestClient(web.app)
 AUTH_HEADERS = {"x-auth-token": "wxd8f9c2a1b3_my_secret_pwd"}
 MINIPROGRAM_HEADERS = {"x-api-key": "HinsCheung_Love_Video_Parser_2026_No_Copy"}
+
+
+def _basic_admin_headers(
+    username: str = "hinspath@gmail.com",
+    password: str = "WhatFuck.1",
+) -> dict[str, str]:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
+
+def test_admin_page_requires_basic_auth():
+    response = client.get("/admin")
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"].startswith("Basic")
+
+
+def test_admin_page_accepts_basic_auth():
+    response = client.get("/admin", headers=_basic_admin_headers())
+
+    assert response.status_code == 200
+    assert "Admin" in response.text
 
 
 def test_share_url_parse_requires_auth():

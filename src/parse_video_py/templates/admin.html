@@ -328,11 +328,7 @@
             <h1 class="hero-title">Admin<span>控制台</span></h1>
             <p class="hero-subtitle">这里集中管理全局 Cookie、下载代理开关和失败域名记录。普通用户自己的 Cookie 只保存在用户浏览器，不会写入这里。</p>
             <section class="panel">
-                <div class="field">
-                    <label for="adminPassword">管理员密码</label>
-                    <input id="adminPassword" type="password" placeholder="请输入 DOUYIN_COOKIE_UPDATE_PASSWORD">
-                </div>
-                <p class="status">敏感操作只使用管理员密码提交，不需要把 API Token 放在前端页面。</p>
+                <p class="status">进入后台前会先进行浏览器鉴权；敏感操作直接使用当前登录态提交，不需要把 API Token 放在前端页面。</p>
             </section>
         </section>
 
@@ -417,15 +413,10 @@
         }
 
         function getPassword() {
-            return $("adminPassword").value.trim();
+            return "";
         }
 
         function ensurePassword() {
-            if (!getPassword()) {
-                showToast("请先输入管理员密码");
-                $("adminPassword").focus();
-                return false;
-            }
             return true;
         }
 
