@@ -150,9 +150,9 @@ uvicorn parse_video_py.web:app --reload
 ## Docker运行
 ### 构建当前仓库镜像
 ```bash
-git clone --branch v1.1.12 --depth 1 https://github.com/hinspath/parse-video-py.git
+git clone --branch v1.1.13 --depth 1 https://github.com/hinspath/parse-video-py.git
 cd parse-video-py
-docker build -t parse-video-py:v1.1.12 .
+docker build -t parse-video-py:v1.1.13 .
 ```
 
 ### 运行 docker 容器, 端口 8000
@@ -172,7 +172,7 @@ docker run -d \
   -e DOWNLOAD_PROXY_MODE_FILE='/app/.runtime/download_proxy_mode.json' \
   -v "$(pwd)/.runtime:/app/.runtime" \
   -v "$(pwd)/public/uploads:/app/public/uploads" \
-  parse-video-py:v1.1.12
+  parse-video-py:v1.1.13
 ```
 
 # 生产部署
@@ -233,7 +233,7 @@ npm install -g pm2
 
 ```bash
 rm -rf /var/www/douyin
-git clone --branch v1.1.12 https://github.com/hinspath/parse-video-py.git /var/www/douyin
+git clone --branch v1.1.13 https://github.com/hinspath/parse-video-py.git /var/www/douyin
 cd /var/www/douyin
 ```
 
@@ -452,7 +452,7 @@ cd /var/www/douyin
 
 cp -a run.sh run.sh.bak.$(date +%F-%H%M%S)
 git fetch --tags origin
-git checkout -f tags/v1.1.12
+git checkout -f tags/v1.1.13
 
 source venv/bin/activate
 pip install -r requirements.txt

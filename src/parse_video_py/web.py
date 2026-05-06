@@ -498,8 +498,8 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
         ),
         "Referer": "https://www.douyin.com/",
     }
-    if request.headers.get("range"):
-        request_headers["Range"] = request.headers["range"]
+    # WeChat downloadFile can retry partial proxy responses repeatedly. Always
+    # fetch and return one full object so the client sees a normal 200 stream.
 
     client = httpx.AsyncClient(
         follow_redirects=True,
@@ -529,15 +529,15 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
     response_headers = {}
     for header in (
         "content-length",
-        "content-range",
-        "accept-ranges",
         "cache-control",
     ):
         if upstream.headers.get(header):
             response_headers[header] = upstream.headers[header]
     response_headers["Content-Disposition"] = 'attachment; filename="download"'
+    response_headers["Accept-Ranges"] = "none"
 
     media_type = upstream.headers.get("content-type") or "application/octet-stream"
+    status_code = 200 if upstream.status_code == 206 else upstream.status_code
 
     async def stream_body():
         try:
@@ -549,7 +549,7 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
 
     return StreamingResponse(
         stream_body(),
-        status_code=upstream.status_code,
+        status_code=status_code,
         headers=response_headers,
         media_type=media_type,
     )
