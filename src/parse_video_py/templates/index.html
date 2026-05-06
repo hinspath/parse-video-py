@@ -1068,11 +1068,11 @@
         }
 
         function imageDownloadUrl(item) {
-            return item.download_url || item.url || "";
+            return item.url || item.local_url || "";
         }
 
         function liveDownloadUrl(item) {
-            return item.live_photo_download_url || item.live_photo_url || "";
+            return item.live_photo_url || item.local_live_photo_url || "";
         }
 
         function renderResult(data) {
@@ -1089,8 +1089,8 @@
             $("authorName").textContent = author.name || "未知作者";
             $("contentTitle").textContent = author.name || data.title || "解析结果";
             $("contentDesc").textContent = data.title || "暂无标题";
-            $("downloadCoverBtn").style.display = (data.cover_download_url || data.cover_url || data.cover) ? "inline-flex" : "none";
-            $("downloadMusicBtn").style.display = (data.music_download_url || data.music_url) ? "inline-flex" : "none";
+            $("downloadCoverBtn").style.display = (data.cover_url || data.cover) ? "inline-flex" : "none";
+            $("downloadMusicBtn").style.display = data.music_url ? "inline-flex" : "none";
             renderQualityButtons(qualities);
             renderMediaGrid(data, images);
         }
@@ -1119,12 +1119,13 @@
             grid.innerHTML = "";
 
             if (selectedVideo && selectedVideo.url) {
+                const officialVideoUrl = selectedVideo.preview_url || selectedVideo.resolved_url || selectedVideo.url;
                 const card = createMediaCard({
                     type: "video",
                     label: selectedVideo.label || "视频",
-                    preview: selectedVideo.preview_url || selectedVideo.resolved_url || selectedVideo.url,
+                    preview: officialVideoUrl,
                     poster: data.cover_url || data.cover || "",
-                    download: selectedVideo.download_url || data.download_url || selectedVideo.url
+                    download: officialVideoUrl
                 });
                 grid.appendChild(card);
             }
@@ -1147,7 +1148,7 @@
                     type: "image",
                     label: "封面",
                     preview: data.cover_url || data.cover,
-                    download: data.cover_download_url || data.cover_url || data.cover
+                    download: data.cover_url || data.cover
                 });
                 grid.appendChild(card);
             }
@@ -1193,6 +1194,7 @@
                 if (!resolvedUrl || resolvedUrl === item.preview) return;
                 item.resolvedPreview = resolvedUrl;
                 item.preview = resolvedUrl;
+                item.download = resolvedUrl;
                 if (item.type === "video" && mediaElement) {
                     mediaElement.src = resolvedUrl;
                     mediaElement.load();
@@ -1213,10 +1215,10 @@
                     if (liveUrl) items.push({ url: liveUrl, name: `live_${index + 1}`, type: "live" });
                 });
             } else if (selectedVideo) {
-                items.push({ url: selectedVideo.download_url || currentData.download_url || selectedVideo.url, name: selectedVideo.label || "video", type: "video" });
+                items.push({ url: selectedVideo.preview_url || selectedVideo.resolved_url || selectedVideo.url, name: selectedVideo.label || "video", type: "video" });
             }
-            if (currentData.music_download_url || currentData.music_url) {
-                items.push({ url: currentData.music_download_url || currentData.music_url, name: "music", type: "music" });
+            if (currentData.music_url) {
+                items.push({ url: currentData.music_url, name: "music", type: "music" });
             }
             return items.filter((item) => item.url);
         }
@@ -1284,13 +1286,14 @@
             return String(text || "download").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || "download";
         }
 
-        function downloadUrl(url, name, type = "") {
+        async function downloadUrl(url, name, type = "") {
             if (!url) return;
+            const finalUrl = await resolvePreviewUrl(url);
             const a = document.createElement("a");
-            a.href = url;
+            a.href = finalUrl;
             a.target = "_blank";
             a.rel = "noopener";
-            a.download = ensureFileExtension(name, url, type);
+            a.download = ensureFileExtension(name, finalUrl, type);
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -1403,11 +1406,11 @@
             $("downloadAllBtn").addEventListener("click", downloadAll);
             $("downloadCoverBtn").addEventListener("click", () => {
                 if (!currentData) return;
-                downloadUrl(currentData.cover_download_url || currentData.cover_url || currentData.cover, "cover", "image");
+                downloadUrl(currentData.cover_url || currentData.cover, "cover", "image");
             });
             $("downloadMusicBtn").addEventListener("click", () => {
                 if (!currentData) return;
-                downloadUrl(currentData.music_download_url || currentData.music_url, "music", "music");
+                downloadUrl(currentData.music_url, "music", "music");
             });
             $("openCookieBtn").addEventListener("click", openCookieModal);
             $("openCookieFooter").addEventListener("click", openCookieModal);
