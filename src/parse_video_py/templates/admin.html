@@ -168,6 +168,50 @@
             box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
         }
 
+        .cookie-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .cookie-row {
+            display: grid;
+            grid-template-columns: 62px 1fr auto;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .cookie-platform {
+            height: 44px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: #171717;
+            font-size: 13px;
+            font-weight: 900;
+        }
+
+        .cookie-row input {
+            width: 100%;
+            height: 44px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 0 12px;
+            outline: 0;
+        }
+
+        .cookie-row input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
+        }
+
+        .cookie-state {
+            min-width: 66px;
+            color: var(--muted);
+            font-size: 13px;
+            text-align: right;
+        }
+
         .button-row {
             display: flex;
             flex-wrap: wrap;
@@ -295,15 +339,40 @@
         <section>
             <section class="panel">
                 <div class="panel-title">
-                    <h2>全局抖音 Cookie</h2>
+                    <h2>全局平台 Cookies</h2>
                 </div>
-                <div class="field">
-                    <label for="globalCookie">服务器默认 Cookie</label>
-                    <textarea id="globalCookie" rows="6" placeholder="粘贴你的全局抖音 Cookie。用户没有设置自己的 Cookie 时，后端会使用这里保存的全局 Cookie。"></textarea>
+                <p class="status">用户没有设置自己的 Cookie 时，后端会使用这里保存的全局 Cookie。当前抖音已接入；其它平台先保存，后面解析器接入后直接启用。留空表示保持原值，输入 CLEAR 表示清空该平台。</p>
+                <div class="cookie-grid">
+                    <div class="cookie-row">
+                        <span class="cookie-platform">红书</span>
+                        <input id="globalCookieRedbook" type="text" placeholder="留空保持原值，输入 CLEAR 清空">
+                        <span class="cookie-state" id="stateRedbook">未读取</span>
+                    </div>
+                    <div class="cookie-row">
+                        <span class="cookie-platform">抖音</span>
+                        <input id="globalCookieDouyin" type="text" placeholder="留空保持原值，输入 CLEAR 清空">
+                        <span class="cookie-state" id="stateDouyin">未读取</span>
+                    </div>
+                    <div class="cookie-row">
+                        <span class="cookie-platform">快手</span>
+                        <input id="globalCookieKuaishou" type="text" placeholder="留空保持原值，输入 CLEAR 清空">
+                        <span class="cookie-state" id="stateKuaishou">未读取</span>
+                    </div>
+                    <div class="cookie-row">
+                        <span class="cookie-platform">B站</span>
+                        <input id="globalCookieBilibili" type="text" placeholder="留空保持原值，输入 CLEAR 清空">
+                        <span class="cookie-state" id="stateBilibili">未读取</span>
+                    </div>
+                    <div class="cookie-row">
+                        <span class="cookie-platform">微博</span>
+                        <input id="globalCookieWeibo" type="text" placeholder="留空保持原值，输入 CLEAR 清空">
+                        <span class="cookie-state" id="stateWeibo">未读取</span>
+                    </div>
                 </div>
                 <div class="button-row">
-                    <button class="btn btn-primary" id="saveGlobalCookieBtn" type="button">保存全局 Cookie</button>
-                    <button class="btn btn-line" id="clearGlobalCookieInputBtn" type="button">清空输入框</button>
+                    <button class="btn btn-primary" id="saveGlobalCookieBtn" type="button">保存全局 Cookies</button>
+                    <button class="btn btn-line" id="refreshCookieStatusBtn" type="button">刷新保存状态</button>
+                    <button class="btn btn-line" id="clearGlobalCookieInputBtn" type="button">清空全部输入框</button>
                 </div>
             </section>
 
@@ -403,26 +472,76 @@
             }
         }
 
+        function getGlobalCookiePayload() {
+            const fields = {
+                redbook: $("globalCookieRedbook").value.trim(),
+                douyin: $("globalCookieDouyin").value.trim(),
+                kuaishou: $("globalCookieKuaishou").value.trim(),
+                bilibili: $("globalCookieBilibili").value.trim(),
+                weibo: $("globalCookieWeibo").value.trim()
+            };
+            const payload = {};
+            Object.keys(fields).forEach((platform) => {
+                const value = fields[platform];
+                if (!value) return;
+                payload[platform] = value.toUpperCase() === "CLEAR" ? "" : value;
+            });
+            return payload;
+        }
+
+        function clearGlobalCookieInputs() {
+            $("globalCookieRedbook").value = "";
+            $("globalCookieDouyin").value = "";
+            $("globalCookieKuaishou").value = "";
+            $("globalCookieBilibili").value = "";
+            $("globalCookieWeibo").value = "";
+        }
+
+        function renderCookieStatus(status) {
+            $("stateRedbook").textContent = status.redbook ? "已保存" : "未保存";
+            $("stateDouyin").textContent = status.douyin ? "已保存" : "未保存";
+            $("stateKuaishou").textContent = status.kuaishou ? "已保存" : "未保存";
+            $("stateBilibili").textContent = status.bilibili ? "已保存" : "未保存";
+            $("stateWeibo").textContent = status.weibo ? "已保存" : "未保存";
+        }
+
+        async function loadCookieStatus() {
+            try {
+                const response = await fetch("/api/platform_cookies/status", { cache: "no-store" });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || "读取失败");
+                }
+                renderCookieStatus(payload.data || {});
+            } catch (error) {
+                showToast(`Cookie 状态读取失败：${error.message}`);
+            }
+        }
+
         async function saveGlobalCookie() {
             if (!ensurePassword()) return;
-            const cookie = $("globalCookie").value.trim();
-            if (!cookie) {
-                showToast("Cookie 不能为空");
+            const cookies = getGlobalCookiePayload();
+            if (!Object.keys(cookies).length) {
+                showToast("没有需要保存的内容；留空会保持原值");
                 return;
             }
 
             try {
-                const response = await fetch("/api/update_cookie", {
+                const response = await fetch("/api/platform_cookies", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ cookie, password: getPassword() })
+                    body: JSON.stringify({
+                        password: getPassword(),
+                        cookies
+                    })
                 });
                 const payload = await response.json();
                 if (!response.ok || payload.code !== 200) {
                     throw new Error(payload.msg || "保存失败");
                 }
                 showToast(payload.msg || "保存成功");
-                $("globalCookie").value = "";
+                clearGlobalCookieInputs();
+                renderCookieStatus(payload.data || {});
             } catch (error) {
                 showToast(`保存失败：${error.message}`);
             }
@@ -490,13 +609,15 @@
         }
 
         $("saveGlobalCookieBtn").addEventListener("click", saveGlobalCookie);
-        $("clearGlobalCookieInputBtn").addEventListener("click", () => $("globalCookie").value = "");
+        $("refreshCookieStatusBtn").addEventListener("click", loadCookieStatus);
+        $("clearGlobalCookieInputBtn").addEventListener("click", clearGlobalCookieInputs);
         $("refreshProxyBtn").addEventListener("click", loadProxyMode);
         $("enableProxyBtn").addEventListener("click", () => setProxyMode(true));
         $("disableProxyBtn").addEventListener("click", () => setProxyMode(false));
         $("refreshDomainsBtn").addEventListener("click", loadDomains);
         $("clearDomainsBtn").addEventListener("click", clearDomains);
 
+        loadCookieStatus();
         loadProxyMode();
         loadDomains();
     </script>

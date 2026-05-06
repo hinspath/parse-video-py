@@ -564,6 +564,24 @@
             gap: 12px;
         }
 
+        .cookie-row {
+            display: grid;
+            grid-template-columns: 54px 1fr;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .cookie-platform {
+            height: 44px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: #171717;
+            font-size: 13px;
+            font-weight: 900;
+        }
+
         .field label {
             display: block;
             margin-bottom: 6px;
@@ -583,8 +601,18 @@
             resize: vertical;
         }
 
+        .cookie-row input {
+            width: 100%;
+            height: 44px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 0 12px;
+            outline: 0;
+        }
+
         .field textarea:focus,
-        .field input:focus {
+        .field input:focus,
+        .cookie-row input:focus {
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
         }
@@ -801,23 +829,34 @@
     <div class="modal" id="cookieModal">
         <div class="modal-panel">
             <div class="modal-head">
-                <div class="modal-title">我的 Cookies</div>
+                <div class="modal-title">自定义 Cookies</div>
                 <button class="close-btn" type="button" data-close-modal="cookieModal">×</button>
             </div>
             <div class="form-grid">
-                <div class="field">
-                    <label for="cookieDouyin">抖音 Cookie</label>
-                    <textarea id="cookieDouyin" rows="4" placeholder="只保存在当前浏览器，解析抖音时优先使用。"></textarea>
+                <p style="margin: 0; color: #555; line-height: 1.7;">此操作会在下次搜索时优先使用你自己的 Cookies。不同平台的 Cookies 不通用，请不要混用。</p>
+                <p style="margin: 0 0 4px; color: #777; line-height: 1.7;">若需要恢复默认 Cookies，清空对应输入框后保存即可。</p>
+                <div class="cookie-row">
+                    <span class="cookie-platform">红书</span>
+                    <input id="cookieRedbook" type="text" placeholder="请输入小红书 Cookies">
                 </div>
-                <div class="field">
-                    <label for="cookieKuaishou">快手 Cookie</label>
-                    <textarea id="cookieKuaishou" rows="3" placeholder="预留字段，只保存在当前浏览器。"></textarea>
+                <div class="cookie-row">
+                    <span class="cookie-platform">抖音</span>
+                    <input id="cookieDouyin" type="text" placeholder="请输入抖音 Cookies">
                 </div>
-                <div class="field">
-                    <label for="cookieRedbook">小红书 Cookie</label>
-                    <textarea id="cookieRedbook" rows="3" placeholder="预留字段，只保存在当前浏览器。"></textarea>
+                <div class="cookie-row">
+                    <span class="cookie-platform">快手</span>
+                    <input id="cookieKuaishou" type="text" placeholder="请输入快手 Cookies">
+                </div>
+                <div class="cookie-row">
+                    <span class="cookie-platform">B站</span>
+                    <input id="cookieBilibili" type="text" placeholder="请输入 B站 Cookies">
+                </div>
+                <div class="cookie-row">
+                    <span class="cookie-platform">微博</span>
+                    <input id="cookieWeibo" type="text" placeholder="请输入微博 Cookies">
                 </div>
                 <div class="button-row">
+                    <a class="btn btn-line" href="https://jyblog.cn/649#title-15" target="_blank" rel="noopener">获取 Cookies 教学</a>
                     <button class="btn btn-primary" type="button" id="saveCookieBtn">保存</button>
                     <button class="btn btn-secondary" type="button" id="resetCookieBtn">重置</button>
                 </div>
@@ -902,9 +941,11 @@
         function getParseHeaders() {
             const cookies = getUserCookies();
             const headers = {};
+            if (cookies.redbook) headers["x-redbook-cookie"] = cookies.redbook;
             if (cookies.douyin) headers["x-douyin-cookie"] = cookies.douyin;
             if (cookies.kuaishou) headers["x-kuaishou-cookie"] = cookies.kuaishou;
-            if (cookies.redbook) headers["x-redbook-cookie"] = cookies.redbook;
+            if (cookies.bilibili) headers["x-bilibili-cookie"] = cookies.bilibili;
+            if (cookies.weibo) headers["x-weibo-cookie"] = cookies.weibo;
             return headers;
         }
 
@@ -1263,9 +1304,11 @@
 
         function openCookieModal() {
             const cookies = getUserCookies();
+            $("cookieRedbook").value = cookies.redbook || "";
             $("cookieDouyin").value = cookies.douyin || "";
             $("cookieKuaishou").value = cookies.kuaishou || "";
-            $("cookieRedbook").value = cookies.redbook || "";
+            $("cookieBilibili").value = cookies.bilibili || "";
+            $("cookieWeibo").value = cookies.weibo || "";
             $("cookieModal").style.display = "grid";
         }
 
@@ -1275,9 +1318,11 @@
 
         function saveUserCookies() {
             saveJson(STORE.cookies, {
+                redbook: $("cookieRedbook").value.trim(),
                 douyin: $("cookieDouyin").value.trim(),
                 kuaishou: $("cookieKuaishou").value.trim(),
-                redbook: $("cookieRedbook").value.trim()
+                bilibili: $("cookieBilibili").value.trim(),
+                weibo: $("cookieWeibo").value.trim()
             });
             closeModal("cookieModal");
             showToast("已保存到当前浏览器");
@@ -1285,9 +1330,11 @@
 
         function resetUserCookies() {
             localStorage.removeItem(STORE.cookies);
+            $("cookieRedbook").value = "";
             $("cookieDouyin").value = "";
             $("cookieKuaishou").value = "";
-            $("cookieRedbook").value = "";
+            $("cookieBilibili").value = "";
+            $("cookieWeibo").value = "";
             showToast("已清空本机 Cookies");
         }
 

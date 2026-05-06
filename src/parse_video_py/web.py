@@ -54,6 +54,12 @@ DOUYIN_COOKIE_FILE = Path(
         str(Path.cwd() / ".runtime" / "douyin_cookie.txt"),
     )
 )
+PLATFORM_COOKIE_FILE = Path(
+    os.getenv(
+        "PLATFORM_COOKIE_FILE",
+        str(Path.cwd() / ".runtime" / "platform_cookies.json"),
+    )
+)
 DOWNLOAD_PROXY_MODE_FILE = Path(
     os.getenv(
         "DOWNLOAD_PROXY_MODE_FILE",
@@ -76,6 +82,8 @@ AUTH_WHITELIST = {
     "/api/download_proxy_mode",
     "/api/get_errors",
     "/api/update_cookie",
+    "/api/platform_cookies",
+    "/api/platform_cookies/status",
     "/api/delete_error",
     "/api/clear_errors",
     "/video/share/url/parse",
@@ -86,6 +94,11 @@ AUTH_WHITELIST_PREFIXES = ("/docs/", "/static/")
 class CookieUpdateParams(BaseModel):
     password: str
     cookie: str
+
+
+class PlatformCookieUpdateParams(BaseModel):
+    password: str
+    cookies: dict[str, str] = {}
 
 
 class ErrorDomainParams(BaseModel):
@@ -118,6 +131,10 @@ def _admin_password_is_valid(password: str) -> bool:
     if not password:
         return False
     return hmac.compare_digest(password, DOUYIN_COOKIE_UPDATE_PASSWORD)
+
+
+def _supported_cookie_platforms() -> tuple[str, ...]:
+    return ("redbook", "douyin", "kuaishou", "bilibili", "weibo")
 
 
 def _add_compat_fields(data: dict) -> dict:
@@ -226,6 +243,51 @@ def _write_persisted_douyin_cookie(cookie: str) -> None:
         pass
 
 
+def _read_platform_cookies() -> dict[str, str]:
+    cookies = {platform: "" for platform in _supported_cookie_platforms()}
+    try:
+        if PLATFORM_COOKIE_FILE.exists():
+            raw = json.loads(PLATFORM_COOKIE_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                for platform in _supported_cookie_platforms():
+                    value = raw.get(platform)
+                    if isinstance(value, str):
+                        cookies[platform] = value.strip()
+    except Exception as err:
+        print(f"[Cookie] read platform cookies failed: {err}")
+
+    legacy_douyin_cookie = _read_persisted_douyin_cookie()
+    if legacy_douyin_cookie and not cookies["douyin"]:
+        cookies["douyin"] = legacy_douyin_cookie
+
+    return cookies
+
+
+def _write_platform_cookies(cookies: dict[str, str]) -> dict[str, str]:
+    normalized = {
+        platform: str(cookies.get(platform) or "").strip()
+        for platform in _supported_cookie_platforms()
+    }
+    PLATFORM_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PLATFORM_COOKIE_FILE.write_text(
+        json.dumps(normalized, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    try:
+        os.chmod(PLATFORM_COOKIE_FILE, 0o600)
+    except Exception:
+        pass
+
+    _write_persisted_douyin_cookie(normalized["douyin"])
+    DouYin.update_cookie(normalized["douyin"])
+    return normalized
+
+
+def _platform_cookie_status() -> dict[str, bool]:
+    cookies = _read_platform_cookies()
+    return {platform: bool(cookies.get(platform)) for platform in _supported_cookie_platforms()}
+
+
 def _parse_bool(value: str, default: bool = True) -> bool:
     if value is None:
         return default
@@ -267,7 +329,7 @@ def _write_download_proxy_enabled(enabled: bool) -> None:
 
 
 def _bootstrap_persisted_douyin_cookie() -> None:
-    cookie = _read_persisted_douyin_cookie()
+    cookie = _read_platform_cookies().get("douyin", "")
     if cookie:
         DouYin.update_cookie(cookie)
 
@@ -487,6 +549,32 @@ async def update_cookie_api(params: CookieUpdateParams):
 
     DouYin.update_cookie(params.cookie)
     return {"code": 200, "msg": "Cookie 更新成功，已保存，重启后仍生效"}
+
+
+@app.get("/api/platform_cookies/status")
+async def get_platform_cookies_status_api():
+    return {"code": 200, "msg": "ok", "data": _platform_cookie_status()}
+
+
+@app.post("/api/platform_cookies")
+async def update_platform_cookies_api(params: PlatformCookieUpdateParams):
+    if not _admin_password_is_valid(params.password):
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "管理密码错误"},
+        )
+
+    existing = _read_platform_cookies()
+    for platform in _supported_cookie_platforms():
+        if platform in params.cookies:
+            existing[platform] = str(params.cookies.get(platform) or "").strip()
+
+    saved = _write_platform_cookies(existing)
+    return {
+        "code": 200,
+        "msg": "平台 Cookie 已保存",
+        "data": {platform: bool(saved.get(platform)) for platform in _supported_cookie_platforms()},
+    }
 
 
 @app.get("/api/download_proxy_mode")
