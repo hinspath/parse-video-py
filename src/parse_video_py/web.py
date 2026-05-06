@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import dataclasses
 import hashlib
@@ -431,6 +432,47 @@ def _download_request_headers(target_url: str) -> dict:
     return headers
 
 
+async def _open_upstream_download(
+    client: httpx.AsyncClient,
+    target_url: str,
+    request_headers: dict,
+    start: int = 0,
+) -> httpx.Response:
+    headers = dict(request_headers)
+    if start > 0:
+        headers["Range"] = f"bytes={start}-"
+
+    return await client.send(
+        client.build_request("GET", target_url, headers=headers),
+        stream=True,
+    )
+
+
+def _parse_content_range_total(value: str | None) -> int:
+    if not value:
+        return 0
+    try:
+        total_text = value.rsplit("/", 1)[-1]
+        if total_text and total_text != "*":
+            return int(total_text)
+    except Exception:
+        return 0
+    return 0
+
+
+def _get_upstream_total_size(upstream: httpx.Response) -> int:
+    content_range_total = _parse_content_range_total(
+        upstream.headers.get("content-range")
+    )
+    if content_range_total:
+        return content_range_total
+
+    try:
+        return int(upstream.headers.get("content-length") or 0)
+    except Exception:
+        return 0
+
+
 def _add_download_proxy_fields(data: dict, request: Request | None) -> None:
     data["download_proxy_enabled"] = _read_download_proxy_enabled()
     if not data["download_proxy_enabled"]:
@@ -637,17 +679,19 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
         )
 
     request_headers = _download_request_headers(target_url)
-    # WeChat downloadFile can retry partial proxy responses repeatedly. Always
-    # fetch and return one full object so the client sees a normal 200 stream.
+    # WeChat downloadFile expects a stable 200 stream. Some upstream video CDNs
+    # drop long connections mid-file, so the proxy retries upstream with Range
+    # and keeps one continuous response open for the client.
 
     client = httpx.AsyncClient(
         follow_redirects=True,
         timeout=httpx.Timeout(60.0, read=None),
     )
     try:
-        upstream = await client.send(
-            client.build_request("GET", target_url, headers=request_headers),
-            stream=True,
+        upstream = await _open_upstream_download(
+            client,
+            target_url,
+            request_headers,
         )
     except Exception as err:
         await client.aclose()
@@ -665,13 +709,15 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
             content={"code": status_code, "msg": "download upstream rejected"},
         )
 
+    total_size = _get_upstream_total_size(upstream)
     response_headers = {}
     for header in (
-        "content-length",
         "cache-control",
     ):
         if upstream.headers.get(header):
             response_headers[header] = upstream.headers[header]
+    if total_size:
+        response_headers["content-length"] = str(total_size)
     response_headers["Content-Disposition"] = 'attachment; filename="download"'
     response_headers["Accept-Ranges"] = "none"
 
@@ -679,9 +725,71 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
     status_code = 200 if upstream.status_code == 206 else upstream.status_code
 
     async def stream_body():
+        nonlocal upstream
+        sent = 0
+        retry_count = 0
+        max_retries = 8
         try:
-            async for chunk in upstream.aiter_bytes(1024 * 256):
-                yield chunk
+            while True:
+                try:
+                    async for chunk in upstream.aiter_bytes(1024 * 512):
+                        if not chunk:
+                            continue
+                        sent += len(chunk)
+                        yield chunk
+                except Exception as err:
+                    print(
+                        "[DownloadProxy] upstream interrupted "
+                        f"sent={sent} total={total_size}: {err}"
+                    )
+
+                if not total_size or sent >= total_size:
+                    break
+
+                retry_count += 1
+                if retry_count > max_retries:
+                    print(
+                        "[DownloadProxy] upstream retry limit reached "
+                        f"sent={sent} total={total_size}"
+                    )
+                    break
+
+                try:
+                    await upstream.aclose()
+                except Exception:
+                    pass
+
+                resumed = False
+                while retry_count <= max_retries:
+                    try:
+                        upstream = await _open_upstream_download(
+                            client,
+                            target_url,
+                            request_headers,
+                            sent,
+                        )
+                        if upstream.status_code != 206:
+                            print(
+                                "[DownloadProxy] upstream did not honor range "
+                                f"status={upstream.status_code} sent={sent}"
+                            )
+                            break
+                        print(
+                            "[DownloadProxy] resumed upstream "
+                            f"from={sent} total={total_size} retry={retry_count}"
+                        )
+                        resumed = True
+                        break
+                    except Exception as err:
+                        print(
+                            "[DownloadProxy] upstream resume failed "
+                            f"from={sent} total={total_size}: {err}"
+                        )
+                        retry_count += 1
+                        await asyncio.sleep(min(retry_count, 3))
+
+                if not resumed:
+                    break
         finally:
             await upstream.aclose()
             await client.aclose()
