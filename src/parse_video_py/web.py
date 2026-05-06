@@ -322,6 +322,29 @@ def _verify_download_proxy_params(encoded_url: str, expires: int, signature: str
     return url
 
 
+def _download_request_headers(target_url: str) -> dict:
+    parsed = urlparse(target_url)
+    host = parsed.netloc.lower()
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+            "Mobile/15E148 Safari/604.1"
+        ),
+        "Accept": "*/*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
+
+    if "kwimgs.com" in host or "kuaishou.com" in host:
+        headers["Referer"] = "https://v.kuaishou.com/"
+    elif "douyin.com" in host or "douyinvod.com" in host or "zjcdn.com" in host:
+        headers["Referer"] = "https://www.douyin.com/"
+    elif parsed.scheme and parsed.netloc:
+        headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+
+    return headers
+
+
 def _add_download_proxy_fields(data: dict, request: Request | None) -> None:
     data["download_proxy_enabled"] = _read_download_proxy_enabled()
     if not data["download_proxy_enabled"]:
@@ -490,14 +513,7 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
             content={"code": 403, "msg": str(err)},
         )
 
-    request_headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
-            "Mobile/15E148 Safari/604.1"
-        ),
-        "Referer": "https://www.douyin.com/",
-    }
+    request_headers = _download_request_headers(target_url)
     # WeChat downloadFile can retry partial proxy responses repeatedly. Always
     # fetch and return one full object so the client sees a normal 200 stream.
 
