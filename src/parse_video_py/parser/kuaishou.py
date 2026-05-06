@@ -8,87 +8,117 @@ from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
 
 
 class KuaiShou(BaseParser):
-    """
-    快手
-    """
+    """KuaiShou parser."""
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
         user_agent = fake_useragent.UserAgent(os=["ios"]).random
+        headers = {
+            "User-Agent": user_agent,
+            "Referer": "https://v.kuaishou.com/",
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/avif,image/webp,*/*;q=0.8"
+            ),
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
 
-        # 获取跳转前的信息, 从中获取跳转url, cookie
         async with httpx.AsyncClient(follow_redirects=False) as client:
-            share_response = await client.get(
-                share_url,
-                headers={
-                    "User-Agent": user_agent,
-                    "Referer": "https://v.kuaishou.com/",
-                },
-            )
+            share_response = await client.get(share_url, headers=headers)
 
         location_url = share_response.headers.get("location", "")
-        if len(location_url) <= 0:
+        if not location_url:
             raise Exception("failed to get location url from share url")
 
-        # /fw/long-video/ 返回结果不一样, 统一替换为 /fw/photo/ 请求
         location_url = location_url.replace("/fw/long-video/", "/fw/photo/")
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(
                 location_url,
-                headers=share_response.headers,
+                headers=headers,
                 cookies=share_response.cookies,
             )
 
-        re_pattern = r"window.INIT_STATE\s*=\s*(.*?)</script>"
-        re_result = re.search(re_pattern, response.text)
-
-        if not re_result or len(re_result.groups()) < 1:
+        re_pattern = r"window\.INIT_STATE\s*=\s*(\{.*?\})\s*</script>"
+        re_result = re.search(re_pattern, response.text, flags=re.S)
+        if not re_result:
             raise Exception("failed to parse video JSON info from HTML")
 
-        json_text = re_result.group(1).strip()
-        json_data = json.loads(json_text)
-
-        photo_data = {}
-        for json_item in json_data.values():
-            if "result" in json_item and "photo" in json_item:
-                photo_data = json_item
-                break
-
+        json_data = json.loads(re_result.group(1).strip())
+        photo_data = self._find_photo_data(json_data)
         if not photo_data:
             raise Exception("failed to parse photo info from INIT_STATE")
 
-        # 判断result状态
-        if (result_code := photo_data["result"]) != 1:
-            raise Exception(f"获取作品信息失败:result={result_code}")
+        result_code = photo_data.get("result")
+        if result_code != 1:
+            raise Exception(f"failed to get photo info: result={result_code}")
 
         data = photo_data["photo"]
+        images = self._get_atlas_images(data)
+        cover_urls = data.get("coverUrls") or data.get("webpCoverUrls") or []
+        cover_url = self._get_url(cover_urls[0]) if cover_urls else ""
 
-        # 获取视频地址
-        video_url = ""
-        if "mainMvUrls" in data and len(data["mainMvUrls"]) > 0:
-            video_url = data["mainMvUrls"][0]["url"]
-
-        # 获取图集
-        ext_params_atlas = data.get("ext_params", {}).get("atlas", {})
-        atlas_cdn_list = ext_params_atlas.get("cdn", [])
-        atlas_list = ext_params_atlas.get("list", [])
-        images = []
-        if len(atlas_cdn_list) > 0 and len(atlas_list) > 0:
-            for atlas in atlas_list:
-                images.append(ImgInfo(url=f"https://{atlas_cdn_list[0]}/{atlas}"))
-
-        video_info = VideoInfo(
-            video_url=video_url,
-            cover_url=data["coverUrls"][0]["url"],
-            title=data["caption"],
+        return VideoInfo(
+            video_url=self._get_video_url(data),
+            cover_url=cover_url,
+            title=data.get("caption", ""),
             author=VideoAuthor(
-                uid="",
-                name=data["userName"],
-                avatar=data["headUrl"],
+                uid=str(data.get("userId", "")),
+                name=data.get("userName", ""),
+                avatar=data.get("headUrl", ""),
             ),
             images=images,
         )
-        return video_info
 
     async def parse_video_id(self, video_id: str) -> VideoInfo:
-        raise NotImplementedError("快手暂不支持直接解析视频ID")
+        raise NotImplementedError("KuaiShou does not support direct video ID parsing")
+
+    def _find_photo_data(self, json_data: dict) -> dict:
+        for json_item in json_data.values():
+            if isinstance(json_item, dict) and "result" in json_item and "photo" in json_item:
+                return json_item
+        return {}
+
+    def _get_video_url(self, data: dict) -> str:
+        for video in data.get("mainMvUrls") or []:
+            url = self._get_url(video)
+            if url:
+                return url
+        return ""
+
+    def _get_atlas_images(self, data: dict) -> list[ImgInfo]:
+        atlas = (data.get("ext_params") or {}).get("atlas") or {}
+        atlas_list = atlas.get("list") or []
+        cdn_list = atlas.get("cdn") or atlas.get("cdnList") or atlas.get("cdn_list") or []
+        if not atlas_list or not cdn_list:
+            return []
+
+        cdn_host = self._get_cdn_host(cdn_list[0])
+        if not cdn_host:
+            return []
+
+        images = []
+        for item in atlas_list:
+            if not item:
+                continue
+            if item.startswith("http"):
+                url = item
+            elif item.startswith("//"):
+                url = f"https:{item}"
+            else:
+                url = f"https://{cdn_host}{item}"
+            images.append(ImgInfo(url=url))
+        return images
+
+    def _get_url(self, value) -> str:
+        if isinstance(value, dict):
+            return value.get("url", "")
+        if isinstance(value, str):
+            return value
+        return ""
+
+    def _get_cdn_host(self, value) -> str:
+        if isinstance(value, dict):
+            return value.get("cdn", "")
+        if isinstance(value, str):
+            return value
+        return ""
