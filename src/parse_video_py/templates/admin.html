@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <style>
+        :root {
+            --accent: #ff2442;
+            --accent-dark: #d91031;
+            --ink: #171717;
+            --muted: #727272;
+            --line: #ededed;
+            --panel: rgba(255, 255, 255, 0.94);
+            --shadow: 0 18px 45px rgba(15, 15, 15, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 14% 12%, rgba(255, 36, 66, 0.08), transparent 34%),
+                linear-gradient(135deg, #fff 0%, #fafafa 55%, #f2f2f3 100%);
+            font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            letter-spacing: 0;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        button,
+        input,
+        textarea {
+            font: inherit;
+        }
+
+        .page-header {
+            height: 78px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 38px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .brand-mark {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: var(--accent);
+            box-shadow: 0 10px 24px rgba(255, 36, 66, 0.24);
+        }
+
+        .ghost-link {
+            height: 36px;
+            padding: 0 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            color: #555;
+            background: rgba(255, 255, 255, 0.74);
+        }
+
+        .layout {
+            width: min(1180px, calc(100vw - 48px));
+            margin: 22px auto 46px;
+            display: grid;
+            grid-template-columns: 0.86fr 1.14fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        .hero-title {
+            margin: 32px 0 14px;
+            font-size: 48px;
+            line-height: 1.06;
+            font-weight: 900;
+        }
+
+        .hero-title span {
+            color: var(--accent);
+        }
+
+        .hero-subtitle {
+            margin: 0 0 22px;
+            max-width: 470px;
+            color: #444;
+            line-height: 1.8;
+        }
+
+        .panel {
+            border: 1px solid rgba(238, 238, 238, 0.9);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+            padding: 20px;
+        }
+
+        .panel + .panel {
+            margin-top: 16px;
+        }
+
+        .panel-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .panel-title h2 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .status {
+            color: var(--muted);
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        .field {
+            margin-bottom: 14px;
+        }
+
+        .field label {
+            display: block;
+            margin-bottom: 6px;
+            color: #555;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .field input,
+        .field textarea {
+            width: 100%;
+            min-height: 44px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px 12px;
+            outline: 0;
+            resize: vertical;
+            background: #fff;
+        }
+
+        .field input:focus,
+        .field textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
+        }
+
+        .button-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .btn {
+            height: 40px;
+            border: 0;
+            border-radius: 8px;
+            padding: 0 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            color: #fff;
+            background: var(--accent);
+            font-weight: 800;
+            box-shadow: 0 12px 26px rgba(255, 36, 66, 0.22);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-dark);
+        }
+
+        .btn-dark {
+            color: #fff;
+            background: #151515;
+        }
+
+        .btn-line {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #333;
+        }
+
+        .domain-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .domain-item {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: center;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px 12px;
+            background: #fff;
+        }
+
+        .domain-url {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #333;
+        }
+
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            z-index: 10;
+            max-width: min(520px, calc(100vw - 36px));
+            transform: translateX(-50%) translateY(18px);
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: #fff;
+            background: rgba(20, 20, 20, 0.9);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        @media (max-width: 900px) {
+            .page-header {
+                padding: 0 18px;
+            }
+
+            .layout {
+                width: min(720px, calc(100vw - 28px));
+                grid-template-columns: 1fr;
+            }
+
+            .hero-title {
+                font-size: 38px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="page-header">
+        <a class="brand" href="/">
+            <span class="brand-mark">VP</span>
+            <span>后台设置</span>
+        </a>
+        <a class="ghost-link" href="/">返回首页</a>
+    </header>
+
+    <main class="layout">
+        <section>
+            <h1 class="hero-title">Admin<span>控制台</span></h1>
+            <p class="hero-subtitle">这里集中管理全局 Cookie、下载代理开关和失败域名记录。普通用户自己的 Cookie 只保存在用户浏览器，不会写入这里。</p>
+            <section class="panel">
+                <div class="field">
+                    <label for="adminPassword">管理员密码</label>
+                    <input id="adminPassword" type="password" placeholder="请输入 DOUYIN_COOKIE_UPDATE_PASSWORD">
+                </div>
+                <p class="status">敏感操作只使用管理员密码提交，不需要把 API Token 放在前端页面。</p>
+            </section>
+        </section>
+
+        <section>
+            <section class="panel">
+                <div class="panel-title">
+                    <h2>全局抖音 Cookie</h2>
+                </div>
+                <div class="field">
+                    <label for="globalCookie">服务器默认 Cookie</label>
+                    <textarea id="globalCookie" rows="6" placeholder="粘贴你的全局抖音 Cookie。用户没有设置自己的 Cookie 时，后端会使用这里保存的全局 Cookie。"></textarea>
+                </div>
+                <div class="button-row">
+                    <button class="btn btn-primary" id="saveGlobalCookieBtn" type="button">保存全局 Cookie</button>
+                    <button class="btn btn-line" id="clearGlobalCookieInputBtn" type="button">清空输入框</button>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-title">
+                    <h2>代理下载</h2>
+                    <button class="btn btn-line" id="refreshProxyBtn" type="button">刷新状态</button>
+                </div>
+                <p class="status" id="proxyStatus">正在读取...</p>
+                <div class="button-row">
+                    <button class="btn btn-primary" id="enableProxyBtn" type="button">开启代理下载</button>
+                    <button class="btn btn-dark" id="disableProxyBtn" type="button">暂停代理下载</button>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-title">
+                    <h2>失败域名</h2>
+                    <button class="btn btn-line" id="refreshDomainsBtn" type="button">刷新列表</button>
+                </div>
+                <p class="status" id="domainStatus">正在读取...</p>
+                <div class="button-row">
+                    <button class="btn btn-dark" id="clearDomainsBtn" type="button">一键清除</button>
+                </div>
+                <div class="domain-list" id="domainList"></div>
+            </section>
+        </section>
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        let toastTimer = null;
+
+        function showToast(message) {
+            const toast = $("toast");
+            toast.textContent = message;
+            toast.classList.add("show");
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
+        }
+
+        function getPassword() {
+            return $("adminPassword").value.trim();
+        }
+
+        function ensurePassword() {
+            if (!getPassword()) {
+                showToast("请先输入管理员密码");
+                $("adminPassword").focus();
+                return false;
+            }
+            return true;
+        }
+
+        function formatDomain(domain) {
+            const text = String(domain || "").trim();
+            if (!text) return "";
+            return /^https?:\/\//i.test(text) ? text : `https://${text}`;
+        }
+
+        async function loadProxyMode() {
+            try {
+                $("proxyStatus").textContent = "正在读取...";
+                const response = await fetch("/api/download_proxy_mode", { cache: "no-store" });
+                const payload = await response.json();
+                const enabled = !!(payload.data && payload.data.enabled);
+                $("proxyStatus").textContent = enabled
+                    ? "当前状态：已开启代理下载。小程序下载会优先走 douyin.hins.top。"
+                    : "当前状态：已暂停代理下载。小程序下载只使用官方 CDN 地址。";
+                $("enableProxyBtn").disabled = enabled;
+                $("disableProxyBtn").disabled = !enabled;
+            } catch (error) {
+                $("proxyStatus").textContent = `读取失败：${error.message}`;
+            }
+        }
+
+        async function setProxyMode(enabled) {
+            if (!ensurePassword()) return;
+            if (!enabled && !window.confirm("确认暂停代理下载吗？")) return;
+
+            try {
+                const response = await fetch("/api/download_proxy_mode", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled, password: getPassword() })
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || "切换失败");
+                }
+                showToast(enabled ? "已开启代理下载" : "已暂停代理下载");
+                loadProxyMode();
+            } catch (error) {
+                showToast(`切换失败：${error.message}`);
+            }
+        }
+
+        async function saveGlobalCookie() {
+            if (!ensurePassword()) return;
+            const cookie = $("globalCookie").value.trim();
+            if (!cookie) {
+                showToast("Cookie 不能为空");
+                return;
+            }
+
+            try {
+                const response = await fetch("/api/update_cookie", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cookie, password: getPassword() })
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || "保存失败");
+                }
+                showToast(payload.msg || "保存成功");
+                $("globalCookie").value = "";
+            } catch (error) {
+                showToast(`保存失败：${error.message}`);
+            }
+        }
+
+        async function loadDomains() {
+            try {
+                $("domainStatus").textContent = "正在读取...";
+                const response = await fetch("/api/get_errors", { cache: "no-store" });
+                const payload = await response.json();
+                const domains = Array.isArray(payload) ? payload : [];
+                $("domainStatus").textContent = domains.length ? `共 ${domains.length} 个失败域名` : "暂无失败域名";
+                $("domainList").innerHTML = "";
+                domains.forEach((domain) => {
+                    const row = document.createElement("div");
+                    row.className = "domain-item";
+                    row.innerHTML = `<span class="domain-url"></span><button class="btn btn-line" type="button">删除</button>`;
+                    row.querySelector(".domain-url").textContent = formatDomain(domain);
+                    row.querySelector("button").addEventListener("click", () => deleteDomain(domain));
+                    $("domainList").appendChild(row);
+                });
+            } catch (error) {
+                $("domainStatus").textContent = `读取失败：${error.message}`;
+            }
+        }
+
+        async function deleteDomain(domain) {
+            if (!ensurePassword()) return;
+            try {
+                const response = await fetch("/api/delete_error", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ domain, password: getPassword() })
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || "删除失败");
+                }
+                showToast(`已删除 ${formatDomain(domain)}`);
+                loadDomains();
+            } catch (error) {
+                showToast(`删除失败：${error.message}`);
+            }
+        }
+
+        async function clearDomains() {
+            if (!ensurePassword()) return;
+            if (!window.confirm("确认清空全部失败域名吗？")) return;
+
+            try {
+                const response = await fetch("/api/clear_errors", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password: getPassword() })
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || "清空失败");
+                }
+                showToast("失败域名已清空");
+                loadDomains();
+            } catch (error) {
+                showToast(`清空失败：${error.message}`);
+            }
+        }
+
+        $("saveGlobalCookieBtn").addEventListener("click", saveGlobalCookie);
+        $("clearGlobalCookieInputBtn").addEventListener("click", () => $("globalCookie").value = "");
+        $("refreshProxyBtn").addEventListener("click", loadProxyMode);
+        $("enableProxyBtn").addEventListener("click", () => setProxyMode(true));
+        $("disableProxyBtn").addEventListener("click", () => setProxyMode(false));
+        $("refreshDomainsBtn").addEventListener("click", loadDomains);
+        $("clearDomainsBtn").addEventListener("click", clearDomains);
+
+        loadProxyMode();
+        loadDomains();
+    </script>
+</body>
+</html>

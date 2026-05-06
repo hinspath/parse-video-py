@@ -1,3457 +1,1344 @@
-<!DOCTYPE html>
-<html lang="zh-cmn-Hans">
+<!doctype html>
+<html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"/>
-    <meta name="renderer" content="webkit"/>
-    <meta name="force-rendering" content="webkit"/>
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="renderer" content="webkit">
     <title>{{ title }}</title>
-    <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mdui@1.0.0/dist/css/mdui.min.css"/>
-    <script src="https://cdn.jsdelivr.net/npm/mdui@1.0.0/dist/js/mdui.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="icon" type="image/png" href="/favicon.png">
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-</head>
-<body>
-<style>
-    /* 主题选择器样式 */
-    .theme-selector {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1000;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        padding: 15px;
-        min-width: 200px;
-        transition: all 0.3s ease;
-    }
-
-    .theme-selector.collapsed {
-        min-width: auto;
-        padding: 10px;
-    }
-
-    .theme-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-    }
-
-    .theme-toggle:hover {
-        color: #666;
-    }
-
-    .theme-options {
-        margin-top: 12px;
-        display: none;
-    }
-
-    .theme-selector:not(.collapsed) .theme-options {
-        display: block;
-    }
-
-    .theme-option {
-        display: flex;
-        align-items: center;
-        padding: 8px 12px;
-        margin: 4px 0;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .theme-option:hover {
-        background: #f5f5f5;
-    }
-
-    .theme-option.active {
-        background: #e3f2fd;
-        font-weight: 500;
-    }
-
-    .theme-preview {
-        width: 20px;
-        height: 20px;
-        border-radius: 4px;
-        margin-right: 10px;
-        border: 1px solid #ddd;
-    }
-
-    .theme-name {
-        flex: 1;
-    }
-
-    .theme-designer {
-        font-size: 11px;
-        opacity: 0.7;
-        margin-left: 5px;
-    }
-
-    /* 原始主题 - MDUI风格 */
-    .theme-original {
-        background-image: linear-gradient(135deg, #CE9FFC 10%, #7367F0 100%);
-        opacity: 0.3;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: -1;
-        content: "";
-    }
-
-    body.theme-original::before {
-        background-image: linear-gradient(135deg, #CE9FFC 10%, #7367F0 100%);
-        opacity: 0.3;
-        z-index: -1;
-        content: "";
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-    }
-
-    .theme-original ::selection {
-        background: rgba(0, 149, 255, .1);
-    }
-
-    /* Dieter Rams 极简功能主义主题 - 灵感转译：Braun产品设计美学 + 参考Kusama/Hadid动态效果 */
-    body.theme-rams {
-        background: #f8f8f8;
-        color: #000000;
-        font-family: 'SF Pro Display', 'Helvetica Neue', 'Arial', sans-serif;
-        font-weight: 400;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-        overflow-x: hidden;
-    }
-
-    /* 借鉴Hadid主题的流动背景效果 - 极简版本 */
-    body.theme-rams::before {
-        background:
-            linear-gradient(45deg, rgba(0,122,255,0.02) 0%, transparent 50%),
-            linear-gradient(-45deg, rgba(255,149,0,0.01) 0%, transparent 50%);
-        background-size: 400px 400px;
-        animation: ramsSubtleFlow 20s ease-in-out infinite;
-        pointer-events: none;
-        z-index: -1;
-    }
-
-    @keyframes ramsSubtleFlow {
-        0%, 100% { background-position: 0% 0%, 100% 100%; }
-        50% { background-position: 100% 0%, 0% 100%; }
-    }
-
-    /* Rams风格的主容器 - 体现产品感 */
-    body.theme-rams .mdui-container {
-        max-width: 95vw;
-        width: 100%;
-        min-width: 320px;
-        margin: 60px auto;
-        padding: 0 20px;
-        position: relative;
-        z-index: 2;
-    }
-
-    body.theme-rams .mdui-card {
-        background: #ffffff;
-        border: 1px solid #d1d1d1;
-        box-shadow:
-            0 4px 6px rgba(0,0,0,0.04),
-            0 1px 3px rgba(0,0,0,0.06);
-        opacity: 1;
-        border-radius: 12px;
-        padding: 40px;
-        margin: 0;
-        position: relative;
-        transition: all 0.3s ease;
-        max-width: 800px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-
-    /* 借鉴Kusama主题的装饰元素 - 极简版本 */
-    body.theme-rams .mdui-card::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #007aff, #ff9500);
-        border-radius: 14px;
-        z-index: -1;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    }
-
-    body.theme-rams .mdui-card:hover::before {
-        opacity: 0.1;
-    }
-
-    /* Rams风格的头部设计 - 简洁的品牌展示 */
-    body.theme-rams .mdui-img-circle {
-        width: 60px !important;
-        height: 60px !important;
-        border: 2px solid #e5e5e7;
-        border-radius: 50%;
-        margin: 0 auto 30px auto;
-        display: block;
-        background: #ffffff;
-        padding: 4px;
-        box-shadow:
-            0 2px 8px rgba(0,0,0,0.08),
-            0 0 0 1px rgba(0,122,255,0.1);
-        transition: all 0.3s ease;
-    }
-
-    body.theme-rams .mdui-img-circle:hover {
-        transform: scale(1.05);
-        box-shadow:
-            0 4px 12px rgba(0,0,0,0.12),
-            0 0 0 3px rgba(0,122,255,0.1);
-    }
-
-    body.theme-rams h1 {
-        font-size: 28px;
-        font-weight: 700;
-        color: #1d1d1f;
-        margin: 0 0 32px 0;
-        text-align: center;
-        letter-spacing: -0.6px;
-        line-height: 1.1;
-        position: relative;
-    }
-
-    /* 借鉴Vignelli主题的装饰线 */
-    body.theme-rams h1::after {
-        content: '';
-        position: absolute;
-        bottom: -12px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 50px;
-        height: 3px;
-        background: linear-gradient(90deg, #007aff, #ff9500);
-        border-radius: 2px;
-    }
-
-    /* Rams风格的内容排版 */
-    body.theme-rams p {
-        color: #515154;
-        font-size: 16px;
-        line-height: 1.6;
-        margin-bottom: 20px;
-        font-weight: 400;
-        position: relative;
-        z-index: 1;
-    }
-
-    body.theme-rams strong {
-        color: #1d1d1f;
-        font-weight: 700;
-        background: linear-gradient(45deg, rgba(0,122,255,0.1), rgba(255,149,0,0.1));
-        padding: 2px 4px;
-        border-radius: 3px;
-    }
-
-    body.theme-rams hr {
-        border: none;
-        border-top: 1px solid #d2d2d7;
-        margin: 32px 0;
-        position: relative;
-    }
-
-    body.theme-rams hr::before {
-        content: '';
-        position: absolute;
-        top: -1px;
-        left: 20%;
-        right: 20%;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #007aff, transparent);
-    }
-
-    /* Rams风格的按钮系统 - 借鉴Hadid主题的光效 */
-    body.theme-rams .mdui-btn {
-        background: #007aff;
-        color: #ffffff;
-        border: none;
-        border-radius: 10px;
-        text-transform: none;
-        font-weight: 600;
-        font-size: 17px;
-        padding: 16px 32px;
-        min-height: 52px;
-        letter-spacing: -0.3px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow:
-            0 4px 6px rgba(0,122,255,0.15),
-            0 1px 3px rgba(0,0,0,0.1);
-        position: relative;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    /* 借鉴Hadid主题的光波效果 */
-    body.theme-rams .mdui-btn::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-        transition: left 0.6s ease;
-        z-index: 1;
-    }
-
-    body.theme-rams .mdui-btn:hover {
-        background: #0056cc;
-        box-shadow:
-            0 8px 12px rgba(0,122,255,0.25),
-            0 2px 4px rgba(0,0,0,0.1);
-        transform: translateY(-2px);
-    }
-
-    body.theme-rams .mdui-btn:hover::before {
-        left: 100%;
-    }
-
-    body.theme-rams .mdui-btn:active {
-        background: #004999;
-        transform: translateY(-1px);
-        box-shadow:
-            0 4px 6px rgba(0,122,255,0.2),
-            0 1px 2px rgba(0,0,0,0.1);
-    }
-
-    /* 主操作按钮 - 黄色强调 */
-    body.theme-rams .mdui-btn.mdui-color-theme-accent {
-        background: linear-gradient(135deg, #ff9500, #ff8000);
-        box-shadow:
-            0 4px 6px rgba(255,149,0,0.15),
-            0 1px 3px rgba(0,0,0,0.1);
-    }
-
-    body.theme-rams .mdui-btn.mdui-color-theme-accent:hover {
-        background: linear-gradient(135deg, #e6850e, #ff6b00);
-        box-shadow:
-            0 8px 12px rgba(255,149,0,0.25),
-            0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    /* 次要按钮 - 灰色调 */
-    body.theme-rams .mdui-btn.mdui-color-red {
-        background: linear-gradient(135deg, #8e8e93, #6d6d70);
-        box-shadow:
-            0 4px 6px rgba(142,142,147,0.15),
-            0 1px 3px rgba(0,0,0,0.1);
-    }
-
-    body.theme-rams .mdui-btn.mdui-color-red:hover {
-        background: linear-gradient(135deg, #636366, #4a4a4d);
-        box-shadow:
-            0 8px 12px rgba(142,142,147,0.25),
-            0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    /* Rams风格的输入框设计 - 借鉴其他主题的焦点效果 */
-    body.theme-rams .mdui-textfield {
-        margin: 32px 0;
-        position: relative;
-    }
-
-    body.theme-rams .mdui-textfield-input {
-        border: 2px solid #d2d2d7;
-        border-radius: 12px;
-        background: #ffffff;
-        font-size: 17px;
-        padding: 16px 20px;
-        height: 52px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        color: #1d1d1f;
-        font-weight: 500;
-        box-shadow:
-            0 2px 4px rgba(0,0,0,0.04),
-            inset 0 1px 2px rgba(0,0,0,0.06);
-    }
-
-    body.theme-rams .mdui-textfield-input:focus {
-        border-color: #007aff;
-        outline: none;
-        box-shadow:
-            0 0 0 4px rgba(0,122,255,0.15),
-            0 4px 12px rgba(0,0,0,0.1),
-            inset 0 1px 2px rgba(0,0,0,0.06);
-        transform: translateY(-1px);
-        background: linear-gradient(to bottom, #ffffff, #fafbff);
-    }
-
-    body.theme-rams .mdui-textfield-input::placeholder {
-        color: #8e8e93;
-        font-weight: 400;
-        transition: opacity 0.3s ease;
-    }
-
-    body.theme-rams .mdui-textfield-input:focus::placeholder {
-        opacity: 0.7;
-    }
-
-    /* Rams风格的解析结果区域 */
-    body.theme-rams .down {
-        margin-top: 48px;
-        padding-top: 32px;
-        border-top: 2px solid #d2d2d7;
-        position: relative;
-    }
-
-    body.theme-rams .down::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 80px;
-        height: 4px;
-        background: linear-gradient(90deg, #007aff, #ff9500);
-        border-radius: 2px;
-    }
-
-    body.theme-rams .down h4 {
-        font-size: 22px;
-        font-weight: 700;
-        color: #1d1d1f;
-        margin: 0 0 32px 0;
-        text-align: center;
-        letter-spacing: -0.3px;
-        position: relative;
-    }
-
-    body.theme-rams .down h4::after {
-        content: '';
-        position: absolute;
-        bottom: -12px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 40px;
-        height: 2px;
-        background: linear-gradient(90deg, #007aff, #ff9500);
-        border-radius: 1px;
-    }
-
-    body.theme-rams .down .mdui-btn {
-        margin: 10px;
-        min-width: 120px;
-        max-width: 160px;
-        font-size: 15px;
-        padding: 14px 24px;
-        min-height: 48px;
-        border-radius: 12px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    /* 图片展示区域 - 借鉴其他主题的悬停效果 */
-    body.theme-rams .down div[style*="display: inline-block"] {
-        margin: 16px;
-        padding: 20px;
-        border: 1px solid #e5e5e7;
-        border-radius: 16px;
-        background: #ffffff;
-        text-align: center;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
-    }
-
-    body.theme-rams .down div[style*="display: inline-block"]::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: linear-gradient(90deg, #007aff, #ff9500);
-        transform: translateY(-100%);
-        transition: transform 0.3s ease;
-    }
-
-    body.theme-rams .down div[style*="display: inline-block"]:hover {
-        background: linear-gradient(to bottom, #ffffff, #f8faff);
-        border-color: #007aff;
-        transform: translateY(-4px);
-        box-shadow:
-            0 12px 24px rgba(0,122,255,0.15),
-            0 4px 8px rgba(0,0,0,0.1);
-    }
-
-    body.theme-rams .down div[style*="display: inline-block"]:hover::before {
-        transform: translateY(0);
-    }
-
-    body.theme-rams .down img {
-        border-radius: 12px;
-        border: 1px solid #e5e5e7;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-    }
-
-    body.theme-rams .down img:hover {
-        transform: scale(1.03);
-        box-shadow: 0 8px 16px rgba(0,122,255,0.2);
-        border-color: #007aff;
-    }
-
-    /* Rams风格的细节优化 */
-    body.theme-rams .mdui-textfield-error {
-        color: #ff3b30;
-        font-size: 14px;
-        margin-top: 8px;
-        font-weight: 500;
-        padding: 8px 12px;
-        background: rgba(255,59,48,0.1);
-        border-radius: 6px;
-        border-left: 3px solid #ff3b30;
-    }
-
-    /* 加载状态 - 借鉴其他主题的动画 */
-    body.theme-rams .loading {
-        color: #007aff;
-        font-style: italic;
-        position: relative;
-        display: inline-block;
-    }
-
-    body.theme-rams .loading::after {
-        content: '...';
-        animation: ramsLoading 1.5s infinite;
-    }
-
-    @keyframes ramsLoading {
-        0%, 60%, 100% { opacity: 1; }
-        30% { opacity: 0.3; }
-    }
-
-    /* Rams风格的响应式设计 */
-    @media (max-width: 768px) {
-        body.theme-rams .mdui-container {
-            margin: 40px 16px;
-            padding: 0;
+    <style>
+        :root {
+            --accent: #ff2442;
+            --accent-dark: #d91031;
+            --ink: #171717;
+            --muted: #747474;
+            --line: #ededed;
+            --panel: rgba(255, 255, 255, 0.92);
+            --soft: #f7f7f8;
+            --shadow: 0 18px 45px rgba(15, 15, 15, 0.08);
         }
 
-        body.theme-rams .mdui-card {
-            padding: 32px 24px;
-            border-radius: 0;
-            border-left: none;
-            border-right: none;
+        * {
+            box-sizing: border-box;
         }
 
-        body.theme-rams h1 {
-            font-size: 24px;
-            margin-bottom: 32px;
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 10%, rgba(255, 36, 66, 0.08), transparent 32%),
+                linear-gradient(135deg, #fff 0%, #fafafa 55%, #f2f2f3 100%);
+            font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            letter-spacing: 0;
         }
 
-        body.theme-rams .mdui-btn {
-            width: 100%;
-            margin: 8px 0;
-            font-size: 17px;
+        a {
+            color: inherit;
+            text-decoration: none;
         }
 
-        body.theme-rams .mdui-textfield-input {
-            font-size: 16px; /* 防止iOS缩放 */
-        }
-    }
-
-    /* 暗色模式适配 */
-    @media (prefers-color-scheme: dark) {
-        body.theme-rams {
-            background: #000000;
-            color: #f5f5f7;
+        button,
+        input,
+        textarea {
+            font: inherit;
         }
 
-        body.theme-rams .mdui-card {
-            background: #1c1c1e;
-            border-color: #38383a;
-        }
-
-        body.theme-rams .mdui-textfield-input {
-            background: #1c1c1e;
-            border-color: #38383a;
-            color: #f5f5f7;
-        }
-
-        body.theme-rams .mdui-textfield-input::placeholder {
-            color: #8e8e93;
-        }
-
-        body.theme-rams h1,
-        body.theme-rams strong {
-            color: #f5f5f7;
-        }
-
-        body.theme-rams p {
-            color: #a1a1a6;
-        }
-
-        body.theme-rams .mdui-img-circle {
-            border-color: #38383a;
-            background: #2c2c2e;
-        }
-
-        body.theme-rams .down {
-            border-color: #38383a;
-        }
-
-        body.theme-rams .down div[style*="display: inline-block"] {
-            background: #2c2c2e;
-            border-color: #38383a;
-        }
-
-        body.theme-rams .down div[style*="display: inline-block"]:hover {
-            background: #3a3a3c;
-        }
-
-        body.theme-rams hr {
-            border-color: #38383a;
-        }
-    }
-
-    /* Massimo Vignelli 现代网格主题 - 灵感转译：纽约地铁图系统 + 参考其他主题效果 */
-    body.theme-vignelli {
-        background: #ffffff;
-        color: #000000;
-        font-family: 'Helvetica Neue Bold', 'Arial Black', sans-serif;
-        font-weight: 700;
-        overflow-x: hidden;
-        line-height: 1.4;
-    }
-
-    /* 借鉴Hadid主题的流动背景 - 网格版 */
-    body.theme-vignelli::before {
-        background-image:
-            linear-gradient(90deg, #ff0000 1px, transparent 1px),
-            linear-gradient(180deg, #ff0000 1px, transparent 1px),
-            linear-gradient(90deg, #0066cc 2px, transparent 2px),
-            linear-gradient(180deg, #0066cc 2px, transparent 2px),
-            linear-gradient(45deg, rgba(255,0,0,0.01) 0%, transparent 50%),
-            linear-gradient(-45deg, rgba(0,102,204,0.01) 0%, transparent 50%);
-        background-size: 80px 80px, 160px 160px, 300px 300px, 400px 400px;
-        background-position: -1px -1px;
-        animation: vignelliDynamicGrid 15s ease-in-out infinite;
-        opacity: 0.03;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        content: '';
-        pointer-events: none;
-        z-index: 1;
-    }
-
-    @keyframes vignelliDynamicGrid {
-        0%, 100% { background-position: 0% 0%, 100% 100%, 0% 0%, 100% 100%; }
-        50% { background-position: 100% 0%, 0% 100%, 100% 0%, 0% 100%; }
-    }
-
-    body.theme-vignelli .mdui-container {
-        position: relative;
-        z-index: 2;
-        max-width: 90vw;
-        width: 100%;
-        min-width: 320px;
-        margin: 0 auto;
-        padding: 40px 30px;
-    }
-
-    body.theme-vignelli .mdui-card {
-        background: #ffffff;
-        border: none;
-        box-shadow: none;
-        opacity: 1;
-        border-radius: 0;
-        padding: 15px;
-        margin: 0 auto;
-        position: relative;
-        max-width: 1000px;
-    }
-
-    /* 借鉴Kusama主题的装饰元素 */
-    body.theme-vignelli .mdui-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 6px;
-        height: 100%;
-        background: linear-gradient(to bottom, #ff0000, #0066cc);
-        z-index: 0;
-    }
-
-    body.theme-vignelli .mdui-card::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        right: 0;
-        width: 6px;
-        height: 100%;
-        background: linear-gradient(to bottom, #0066cc, #ff0000);
-        z-index: 0;
-    }
-
-    /* Vignelli风格的严格网格布局 */
-    body.theme-vignelli .mdui-card > * {
-        margin-bottom: 25px;
-        position: relative;
-        z-index: 1;
-    }
-
-    /* 品牌标识 - 借鉴Hadid主题的动态效果 */
-    body.theme-vignelli .mdui-img-circle {
-        width: 100px !important;
-        height: 100px !important;
-        border: 6px solid #000000;
-        margin: 0 auto 25px auto;
-        display: block;
-        background: linear-gradient(45deg, #ff0000, #0066cc);
-        padding: 5px;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        animation: vignelliLogoRotate 20s linear infinite;
-    }
-
-    @keyframes vignelliLogoRotate {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-
-    body.theme-vignelli .mdui-img-circle:hover {
-        animation-play-state: paused;
-        transform: scale(1.1) rotate(10deg);
-        box-shadow: 0 0 30px rgba(255,0,0,0.3);
-    }
-
-    /* Vignelli风格的标题系统 - 借鉴动态效果 */
-    body.theme-vignelli h1 {
-        font-size: 42px;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: -3px;
-        line-height: 0.9;
-        color: #000000;
-        margin: 0 0 25px 0;
-        text-align: center;
-        position: relative;
-        overflow: hidden;
-    }
-
-    body.theme-vignelli h1::after {
-        content: '';
-        position: absolute;
-        bottom: -15px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 100px;
-        height: 8px;
-        background: linear-gradient(90deg, #ff0000, #0066cc, #ff0000);
-        background-size: 200% 100%;
-        animation: vignelliGradient 8s ease-in-out infinite;
-        border-radius: 4px;
-    }
-
-    @keyframes vignelliGradient {
-        0%, 100% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-    }
-
-    /* Vignelli风格的正文排版 */
-    body.theme-vignelli p {
-        font-size: 18px;
-        line-height: 1.6;
-        color: #333333;
-        margin: 0 0 20px 0;
-        max-width: 1000px;
-        margin-left: auto;
-        margin-right: auto;
-        font-weight: 500;
-        text-align: justify;
-        columns: 2;
-        column-gap: 60px;
-        position: relative;
-    }
-
-    /* 修复mdui-typo下的文字显示为单列 */
-    body.theme-vignelli .mdui-typo p {
-        columns: 1;
-        text-align: left;
-        max-width: 100%;
-        column-gap: 0;
-    }
-
-    /* 借鉴Kusama主题的强调效果 */
-    body.theme-vignelli strong {
-        font-weight: 900;
-        color: #000000;
-        background: linear-gradient(45deg, #ffc72c, #ff9500);
-        padding: 2px 8px;
-        border-radius: 3px;
-        position: relative;
-        animation: vignelliPulse 3s ease-in-out infinite;
-    }
-
-    @keyframes vignelliPulse {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.05); }
-    }
-
-    body.theme-vignelli hr {
-        border: none;
-        border-top: 4px solid #000000;
-        margin: 30px 0;
-        position: relative;
-        overflow: hidden;
-    }
-
-    body.theme-vignelli hr::before {
-        content: '◆';
-        position: absolute;
-        top: -12px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #ffffff;
-        padding: 0 20px;
-        font-size: 28px;
-        color: #ff0000;
-        animation: vignelliSymbol 2s ease-in-out infinite;
-    }
-
-    @keyframes vignelliSymbol {
-        0%, 100% { transform: translateX(-50%) scale(1); }
-        50% { transform: translateX(-50%) scale(1.2); }
-    }
-
-    /* Vignelli风格的按钮系统 - 借鉴Hadid主题的光效 */
-    body.theme-vignelli .mdui-btn {
-        background: #000000;
-        color: #ffffff;
-        border: none;
-        border-radius: 0;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 13px;
-        padding: 16px 32px;
-        min-height: 50px;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        margin: 12px;
-        position: relative;
-        overflow: hidden;
-        clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 0 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    /* 借鉴Hadid主题的光波效果 */
-    body.theme-vignelli .mdui-btn::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-        transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 0;
-    }
-
-    body.theme-vignelli .mdui-btn::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        right: 10px;
-        transform: translateY(-50%);
-        width: 0;
-        height: 0;
-        border-style: solid;
-        border-width: 8px 0 8px 16px;
-        border-color: transparent transparent transparent #ffffff;
-        transition: all 0.4s ease;
-        z-index: 1;
-    }
-
-    body.theme-vignelli .mdui-btn span {
-        position: relative;
-        z-index: 2;
-        margin-right: 15px;
-    }
-
-    body.theme-vignelli .mdui-btn:hover {
-        transform: translateX(15px);
-        box-shadow: 10px 10px 0 #000000;
-        background: linear-gradient(45deg, #ff0000, #0066cc);
-    }
-
-    body.theme-vignelli .mdui-btn:hover::before {
-        left: 100%;
-    }
-
-    body.theme-vignelli .mdui-btn:hover::after {
-        right: 10px;
-        border-color: transparent transparent transparent rgba(255,255,255,0.8);
-        transform: translateY(-50%) translateX(10px);
-    }
-
-    /* 地铁线色彩系统 - 增强效果 */
-    body.theme-vignelli .mdui-btn.mdui-color-theme-accent {
-        background: linear-gradient(45deg, #ff0000, #ff3333);
-        clip-path: polygon(20px 0, 100% 0, 100% 100%, 0 100%, 0 50%);
-        box-shadow: 5px 5px 0 #ff0000;
-    }
-
-    body.theme-vignelli .mdui-btn.mdui-color-theme-accent::after {
-        left: 10px;
-        right: auto;
-        transform: translateY(-50%) rotate(180deg);
-    }
-
-    body.theme-vignelli .mdui-btn.mdui-color-theme-accent span {
-        margin-left: 20px;
-        margin-right: 0;
-    }
-
-    body.theme-vignelli .mdui-btn.mdui-color-theme-accent:hover {
-        background: linear-gradient(45deg, #ff3333, #ff6666);
-        box-shadow: 15px 15px 0 #ff0000;
-    }
-
-    body.theme-vignelli .mdui-btn.mdui-color-red {
-        background: linear-gradient(45deg, #0066cc, #3399ff);
-        clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 90%, calc(100% - 10px) 100%, 0 100%);
-        box-shadow: 5px 5px 0 #0066cc;
-    }
-
-    body.theme-vignelli .mdui-btn.mdui-color-red:hover {
-        background: linear-gradient(45deg, #3399ff, #66bbff);
-        box-shadow: 15px 15px 0 #0066cc;
-    }
-
-    /* Vignelli风格的输入框 - 借鉴其他主题的效果 */
-    body.theme-vignelli .mdui-textfield {
-        position: relative;
-        margin: 25px 0;
-        max-width: 700px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-
-    body.theme-vignelli .mdui-textfield::before {
-        content: 'URL INPUT';
-        position: absolute;
-        top: -30px;
-        left: 0;
-        font-size: 12px;
-        font-weight: 900;
-        letter-spacing: 2px;
-        color: #ff0000;
-        animation: vignelliBlink 2s ease-in-out infinite;
-    }
-
-    @keyframes vignelliBlink {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-
-    body.theme-vignelli .mdui-textfield-input {
-        border: none;
-        border-bottom: 3px solid #000000;
-        border-radius: 0;
-        background: transparent;
-        font-size: 20px;
-        font-weight: 700;
-        padding: 16px 0;
-        height: auto;
-        color: #000000;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        letter-spacing: 0.5px;
-        position: relative;
-    }
-
-    /* 借鉴其他主题的焦点效果 */
-    body.theme-vignelli .mdui-textfield-input::after {
-        content: '';
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        width: 0;
-        height: 4px;
-        background: linear-gradient(90deg, #ff0000, #0066cc);
-        transition: width 0.4s ease;
-    }
-
-    body.theme-vignelli .mdui-textfield-input:focus {
-        outline: none;
-        border-bottom-width: 8px;
-        border-color: #ff0000;
-        margin-top: 4px;
-        background: linear-gradient(to bottom, rgba(255,0,0,0.05), transparent);
-        color: #ff0000;
-    }
-
-    body.theme-vignelli .mdui-textfield-input:focus::after {
-        width: 100%;
-    }
-
-    body.theme-vignelli .mdui-textfield-input::placeholder {
-        color: #999999;
-        font-style: italic;
-        font-weight: 400;
-        transition: all 0.3s ease;
-    }
-
-    body.theme-vignelli .mdui-textfield-input:focus::placeholder {
-        color: #ff6666;
-        font-style: normal;
-    }
-
-    /* Vignelli风格的解析结果区域 */
-    body.theme-vignelli .down {
-        border-top: 3px solid #000000;
-        padding-top: 30px;
-        margin-top: 30px;
-        position: relative;
-        overflow: hidden;
-    }
-
-    body.theme-vignelli .down::before {
-        content: 'PARSED RESULTS';
-        position: absolute;
-        top: -20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #ffffff;
-        padding: 0 40px;
-        font-size: 14px;
-        font-weight: 900;
-        letter-spacing: 4px;
-        color: #ff0000;
-        animation: vignelliBlink 3s ease-in-out infinite;
-    }
-
-    body.theme-vignelli .down::after {
-        content: '';
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: linear-gradient(90deg, #ff0000, #0066cc, #ff0000);
-        animation: vignelliGradient 6s ease-in-out infinite;
-    }
-
-    body.theme-vignelli .down h4 {
-        font-size: 22px;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: -1px;
-        color: #000000;
-        margin: 0 0 25px 0;
-        text-align: center;
-        position: relative;
-    }
-
-    body.theme-vignelli .down h4::after {
-        content: '';
-        position: absolute;
-        bottom: -10px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 80px;
-        height: 3px;
-        background: linear-gradient(90deg, #0066cc, #ff0000);
-        border-radius: 2px;
-    }
-
-    body.theme-vignelli .down div[style*="display: inline-block"] {
-        display: inline-block;
-        margin: 15px;
-        padding: 0;
-        border: 4px solid #000000;
-        background: #ffffff;
-        text-align: center;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
-        clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%, 15px 100%, 0 calc(100% - 15px));
-    }
-
-    /* 借鉴Hadid主题的内部光效 */
-    body.theme-vignelli .down div[style*="display: inline-block"]::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(45deg, transparent 30%, rgba(255,0,0,0.05) 50%, transparent 70%);
-        opacity: 0;
-        transition: opacity 0.4s ease;
-        animation: vignelliCardFlow 8s linear infinite;
-    }
-
-    @keyframes vignelliCardFlow {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-
-    body.theme-vignelli .down div[style*="display: inline-block"]:hover {
-        background: linear-gradient(45deg, #ff0000, #0066cc);
-        transform: translateY(-15px) rotate(3deg);
-        box-shadow: 15px 15px 0 #000000;
-    }
-
-    body.theme-vignelli .down div[style*="display: inline-block"]:hover::before {
-        opacity: 1;
-    }
-
-    body.theme-vignelli .down div[style*="display: inline-block"]:hover img {
-        filter: invert(1) hue-rotate(180deg);
-    }
-
-    body.theme-vignelli .down img {
-        width: 240px !important;
-        height: auto;
-        border: none;
-        margin: 0;
-        padding: 24px;
-        transition: all 0.4s ease;
-        display: block;
-        position: relative;
-        z-index: 1;
-    }
-
-    body.theme-vignelli .down .mdui-btn {
-        margin: 20px;
-        min-width: 120px;
-        max-width: 160px;
-        font-size: 12px;
-        padding: 18px 24px;
-        min-height: 52px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        overflow: hidden;
-        clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 0 100%);
-    }
-
-    /* 为下载区域的按钮添加箭头效果 */
-    body.theme-vignelli .down .mdui-btn::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        right: 10px;
-        transform: translateY(-50%);
-        width: 0;
-        height: 0;
-        border-style: solid;
-        border-width: 8px 0 8px 16px;
-        border-color: transparent transparent transparent #ffffff;
-        transition: all 0.4s ease;
-        z-index: 1;
-    }
-
-    body.theme-vignelli .down .mdui-btn span {
-        position: relative;
-        z-index: 2;
-        margin-right: 15px;
-    }
-
-    /* 下载区域按钮悬浮效果 */
-    body.theme-vignelli .down .mdui-btn::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-        transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 0;
-    }
-
-    body.theme-vignelli .down .mdui-btn:hover {
-        transform: translateX(15px);
-        box-shadow: 10px 10px 0 #000000;
-        background: linear-gradient(45deg, #ff0000, #0066cc);
-    }
-
-    body.theme-vignelli .down .mdui-btn:hover::before {
-        left: 100%;
-    }
-
-    body.theme-vignelli .down .mdui-btn:hover::after {
-        right: 10px;
-        border-color: transparent transparent transparent rgba(255,255,255,0.8);
-        transform: translateY(-50%) translateX(10px);
-    }
-
-    /* Vignelli颜色系统的应用 */
-    body.theme-vignelli .vignelli-red { color: #ff0000; }
-    body.theme-vignelli .vignelli-blue { color: #0066cc; }
-    body.theme-vignelli .vignelli-yellow { color: #ffc72c; }
-    body.theme-vignelli .vignelli-green { color: #00a652; }
-    body.theme-vignelli .vignelli-orange { color: #ff6600; }
-    body.theme-vignelli .vignelli-purple { color: #8b5fbf; }
-
-    /* Vignelli风格的装饰元素 */
-    body.theme-vignelli .vignelli-corner {
-        position: fixed;
-        width: 100px;
-        height: 100px;
-        background: #ff0000;
-        z-index: 1000;
-    }
-
-    body.theme-vignelli .vignelli-corner.top-left {
-        top: 0;
-        left: 0;
-        clip-path: polygon(0 0, 100% 0, 0 100%);
-    }
-
-    body.theme-vignelli .vignelli-corner.top-right {
-        top: 0;
-        right: 0;
-        clip-path: polygon(0 0, 100% 0, 100% 100%);
-        background: #0066cc;
-    }
-
-    body.theme-vignelli .vignelli-corner.bottom-left {
-        bottom: 0;
-        left: 0;
-        clip-path: polygon(0 0, 0 100%, 100% 100%);
-        background: #0066cc;
-    }
-
-    body.theme-vignelli .vignelli-corner.bottom-right {
-        bottom: 0;
-        right: 0;
-        clip-path: polygon(100% 0, 100% 100%, 0 100%);
-        background: #ff0000;
-    }
-
-    /* 响应式设计 */
-    @media (max-width: 1200px) {
-        body.theme-vignelli .mdui-container {
-            padding: 60px 40px;
-            max-width: 95vw;
-        }
-
-        body.theme-vignelli .mdui-typo p {
-            columns: 1;
-            max-width: 700px;
-        }
-    }
-
-    @media (max-width: 768px) {
-        body.theme-vignelli .mdui-container {
-            padding: 40px 20px;
-            max-width: 98vw;
-        }
-
-        body.theme-vignelli h1 {
-            font-size: 36px;
-            letter-spacing: -1px;
-        }
-
-        body.theme-vignelli .mdui-img-circle {
-            width: 90px !important;
-            height: 90px !important;
-            border-width: 6px;
-            border-radius: 50% !important;
-            object-fit: cover;
-        }
-
-        body.theme-vignelli .mdui-textfield-input {
-            font-size: 18px;
-        }
-
-        body.theme-vignelli .down div[style*="display: inline-block"] {
-            display: block;
-            margin: 20px auto;
-            max-width: 300px;
-        }
-
-        body.theme-vignelli .down img {
-            width: 100% !important;
-            max-width: 260px;
-        }
-
-        body.theme-vignelli .mdui-btn {
-            width: 100%;
-            max-width: 300px;
-            margin: 10px auto;
-            display: block;
-        }
-
-        /* 隐藏装饰角落 */
-        body.theme-vignelli .vignelli-corner {
-            display: none;
-        }
-    }
-
-    /* 添加数据属性支持 */
-    body.theme-vignelli .mdui-btn[data-text]::after {
-        content: attr(data-text);
-    }
-
-    /* Yayoi Kusama 波点艺术主题 */
-    body.theme-kusama {
-        background: #fff0f5;
-        color: #d81b60;
-        font-family: 'Georgia', serif;
-        overflow-x: hidden;
-    }
-
-    body.theme-kusama::before {
-        background-image:
-            radial-gradient(circle at 20% 80%, rgba(216, 27, 96, 0.08) 0%, transparent 50%),
-            radial-gradient(circle at 80% 20%, rgba(233, 30, 99, 0.08) 0%, transparent 50%),
-            radial-gradient(circle at 40% 40%, rgba(240, 98, 146, 0.08) 0%, transparent 50%),
-            radial-gradient(circle at 60% 70%, rgba(216, 27, 96, 0.06) 0%, transparent 40%),
-            radial-gradient(circle at 30% 30%, rgba(233, 30, 99, 0.06) 0%, transparent 40%);
-        animation: kusamaFloat 25s ease-in-out infinite;
-    }
-
-    @keyframes kusamaFloat {
-        0%, 100% { transform: translate(0, 0) rotate(0deg); }
-        25% { transform: translate(-15px, -15px) rotate(90deg); }
-        50% { transform: translate(15px, -10px) rotate(180deg); }
-        75% { transform: translate(-10px, 15px) rotate(270deg); }
-    }
-
-    body.theme-kusama .mdui-card {
-        background: white;
-        border: 3px dotted #d81b60;
-        border-radius: 20px;
-        padding: 2.5em;
-        margin: 2em auto;
-        max-width: 95%;
-        opacity: 0.95;
-        box-shadow: 0 0 30px rgba(216, 27, 96, 0.2);
-        position: relative;
-        overflow: visible;
-    }
-
-    body.theme-kusama .mdui-card::before,
-    body.theme-kusama .mdui-card::after {
-        content: '';
-        position: absolute;
-        width: 20px;
-        height: 20px;
-        background: radial-gradient(circle, #d81b60 0%, #ff69b4 50%, transparent 70%);
-        border-radius: 50%;
-        animation: kusamaPulse 3s ease-in-out infinite;
-    }
-
-    body.theme-kusama .mdui-card::before {
-        top: -10px;
-        left: 20px;
-        animation-delay: 0s;
-    }
-
-    body.theme-kusama .mdui-card::after {
-        bottom: -10px;
-        right: 20px;
-        animation-delay: 1.5s;
-    }
-
-    @keyframes kusamaPulse {
-        0%, 100% { transform: scale(1); opacity: 0.8; }
-        50% { transform: scale(1.2); opacity: 1; }
-    }
-
-    body.theme-kusama .mdui-btn {
-        background: linear-gradient(45deg, #d81b60, #ff69b4);
-        color: white;
-        border-radius: 25px;
-        border: 2px solid transparent;
-        font-weight: 600;
-        position: relative;
-        overflow: hidden;
-        transition: all 0.3s ease;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.2);
-    }
-
-    body.theme-kusama .mdui-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(216, 27, 96, 0.4);
-        background: linear-gradient(45deg, #ff69b4, #d81b60);
-    }
-
-    body.theme-kusama .mdui-btn::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 0;
-        height: 0;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
-        transform: translate(-50%, -50%);
-        transition: width 0.4s, height 0.4s;
-    }
-
-    body.theme-kusama .mdui-btn:hover::before {
-        width: 200px;
-        height: 200px;
-    }
-
-    body.theme-kusama .mdui-textfield-input {
-        border: 2px dotted #d81b60;
-        border-radius: 20px;
-        background: rgba(255, 240, 245, 0.9);
-        color: #d81b60;
-        font-weight: 500;
-        transition: all 0.3s ease;
-        box-shadow: inset 0 2px 4px rgba(216, 27, 96, 0.1);
-    }
-
-    body.theme-kusama .mdui-textfield-input:focus {
-        border-color: #ff69b4;
-        background: rgba(255, 255, 255, 0.95);
-        box-shadow: 0 0 0 3px rgba(255, 105, 180, 0.2), inset 0 2px 4px rgba(216, 27, 96, 0.1);
-    }
-
-    body.theme-kusama .mdui-textfield-input::placeholder {
-        color: rgba(216, 27, 96, 0.6);
-    }
-
-    /* 波点主题的容器和布局调整 */
-    body.theme-kusama .mdui-container {
-        max-width: 1000px;
-        margin-top: 5em;
-        margin-bottom: 3em;
-    }
-
-    body.theme-kusama h1 {
-        color: #d81b60;
-        font-weight: 600;
-        text-shadow: 2px 2px 4px rgba(216, 27, 96, 0.1);
-        margin-bottom: 1.5em;
-    }
-
-    body.theme-kusama .mdui-img-circle {
-        border: 3px solid #d81b60;
-        box-shadow: 0 0 20px rgba(216, 27, 96, 0.3);
-    }
-
-    body.theme-kusama p {
-        line-height: 1.8;
-        opacity: 0.9;
-    }
-
-    /* 为经典MDUI主题添加图片悬浮效果 - 增强优先级 */
-    body.theme-original .down div[style*="display: inline-block"] img {
-        transition: all 0.3s ease !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
-        border-radius: 8px !important;
-        cursor: pointer !important;
-        border: 2px solid transparent !important;
-    }
-
-    body.theme-original .down div[style*="display: inline-block"] img:hover {
-        transform: scale(1.08) !important;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25) !important;
-        border-color: #ff4081 !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* 确保覆盖内联样式 */
-    body.theme-original .down img[src]:hover {
-        transform: scale(1.08) !important;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25) !important;
-        border-color: #ff4081 !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* 为波点艺术主题添加图片悬浮动画 */
-    body.theme-kusama .down img:hover {
-        transform: scale(1.08) rotate(5deg);
-        box-shadow: 0 8px 20px rgba(216, 27, 96, 0.3);
-        filter: brightness(1.1);
-        transition: all 0.3s ease;
-    }
-
-    /* 波点艺术主题图片悬浮时的额外装饰 */
-    body.theme-kusama .down div[style*="display: inline-block"]:hover img::after {
-        content: '◈';
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        color: #d81b60;
-        font-size: 24px;
-        text-shadow: 0 2px 4px rgba(216, 27, 96, 0.3);
-        animation: kusamaPulse 2s ease-in-out infinite;
-    }
-
-    body.theme-kusama strong {
-        color: #d81b60;
-        font-weight: 700;
-    }
-
-    body.theme-kusama .down {
-        margin-top: 2em;
-        padding-top: 1.5em;
-        border-top: 2px dotted #d81b60;
-    }
-
-    body.theme-kusama .down .mdui-btn {
-        margin: 0.5em;
-        min-width: 120px;
-    }
-
-    /* 梦幻星空主题 - 灵感来自Yayoi Kusama和John Maeda */
-    body.theme-starry {
-        background: #0a0a1a;
-        color: #e0e6ff;
-        font-family: 'SF Pro Display', 'Helvetica Neue', 'Arial', sans-serif;
-        overflow-x: hidden;
-        position: relative;
-    }
-
-    /* 动态星空背景 - Kusama风格的无限波点宇宙 */
-    body.theme-starry::before {
-        background:
-            radial-gradient(circle at 15% 20%, rgba(147, 51, 234, 0.15) 0%, transparent 50%),
-            radial-gradient(circle at 85% 80%, rgba(59, 130, 246, 0.12) 0%, transparent 50%),
-            radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.08) 0%, transparent 60%),
-            radial-gradient(circle at 25% 75%, rgba(236, 72, 153, 0.06) 0%, transparent 40%),
-            radial-gradient(circle at 75% 25%, rgba(34, 211, 238, 0.04) 0%, transparent 30%);
-        background-size: 400% 400%, 300% 300%, 500% 500%, 200% 200%, 600% 600%;
-        animation: starryGalaxyFlow 30s ease-in-out infinite;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        content: '';
-        pointer-events: none;
-        z-index: -2;
-    }
-
-    @keyframes starryGalaxyFlow {
-        0%, 100% {
-            background-position: 0% 0%, 100% 100%, 50% 50%, 25% 75%, 75% 25%;
-            filter: hue-rotate(0deg) brightness(1);
-        }
-        25% {
-            background-position: 100% 0%, 0% 100%, 75% 25%, 50% 50%, 25% 75%;
-            filter: hue-rotate(20deg) brightness(1.1);
-        }
-        50% {
-            background-position: 100% 100%, 0% 0%, 25% 75%, 75% 25%, 50% 50%;
-            filter: hue-rotate(-10deg) brightness(0.9);
-        }
-        75% {
-            background-position: 0% 100%, 100% 0%, 50% 50%, 25% 75%, 75% 25%;
-            filter: hue-rotate(15deg) brightness(1.05);
-        }
-    }
-
-    /* John Maeda风格的生成星星 - 动态交互元素 */
-    body.theme-starry::after {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-image:
-            radial-gradient(1px 1px at 20px 30px, rgba(255, 255, 255, 0.8), transparent),
-            radial-gradient(1px 1px at 40px 70px, rgba(147, 197, 253, 0.6), transparent),
-            radial-gradient(2px 2px at 90px 40px, rgba(196, 181, 253, 0.7), transparent),
-            radial-gradient(1px 1px at 130px 80px, rgba(251, 207, 232, 0.5), transparent),
-            radial-gradient(1px 1px at 160px 30px, rgba(255, 255, 255, 0.9), transparent);
-        background-repeat: repeat;
-        background-size: 200px 100px;
-        animation: starryTwinkle 4s ease-in-out infinite;
-        pointer-events: none;
-        z-index: -1;
-    }
-
-    @keyframes starryTwinkle {
-        0%, 100% {
-            opacity: 0.8;
-            transform: scale(1);
-        }
-        50% {
-            opacity: 1;
-            transform: scale(1.05);
-        }
-    }
-
-    /* 主容器 - 星空中的漂浮卡片 */
-    body.theme-starry .mdui-container {
-        max-width: 900px;
-        margin: 40px auto;
-        padding: 0 20px;
-        position: relative;
-        z-index: 2;
-    }
-
-    body.theme-starry .mdui-card {
-        background: rgba(15, 23, 42, 0.85);
-        backdrop-filter: blur(20px) saturate(150%);
-        border: 1px solid rgba(147, 197, 253, 0.2);
-        border-radius: 24px;
-        padding: 48px;
-        margin: 0 auto;
-        position: relative;
-        overflow: hidden;
-        box-shadow:
-            0 20px 40px rgba(0, 0, 0, 0.4),
-            0 0 0 1px rgba(147, 197, 253, 0.1),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1),
-            inset 0 -1px 0 rgba(0, 0, 0, 0.3);
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    /* Kusama风格的波点装饰 */
-    body.theme-starry .mdui-card::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background-image:
-            radial-gradient(circle at 20% 20%, rgba(147, 51, 234, 0.03) 2px, transparent 2px),
-            radial-gradient(circle at 80% 30%, rgba(59, 130, 246, 0.04) 3px, transparent 3px),
-            radial-gradient(circle at 40% 70%, rgba(236, 72, 153, 0.03) 2px, transparent 2px),
-            radial-gradient(circle at 70% 80%, rgba(34, 211, 238, 0.02) 4px, transparent 4px);
-        background-size: 120px 120px, 150px 150px, 100px 100px, 180px 180px;
-        animation: starryDotsFloat 25s linear infinite;
-        pointer-events: none;
-        z-index: -1;
-    }
-
-    @keyframes starryDotsFloat {
-        0% { transform: rotate(0deg) translateX(0px); }
-        100% { transform: rotate(360deg) translateX(20px); }
-    }
-
-    body.theme-starry .mdui-card:hover {
-        transform: translateY(-8px) scale(1.02);
-        box-shadow:
-            0 30px 60px rgba(0, 0, 0, 0.5),
-            0 0 0 2px rgba(147, 197, 253, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.2);
-        border-color: rgba(147, 197, 253, 0.4);
-    }
-
-    /* 头像 - 星光环绕效果 */
-    body.theme-starry .mdui-img-circle {
-        width: 120px !important;
-        height: 120px !important;
-        border: 3px solid rgba(147, 197, 253, 0.3);
-        border-radius: 50%;
-        margin: 0 auto 40px auto;
-        display: block;
-        background: rgba(15, 23, 42, 0.8);
-        padding: 6px;
-        box-shadow:
-            0 0 30px rgba(147, 197, 253, 0.4),
-            0 0 60px rgba(147, 51, 234, 0.2),
-            0 8px 32px rgba(0, 0, 0, 0.3);
-        position: relative;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    /* 星光脉冲效果 */
-    body.theme-starry .mdui-img-circle::before {
-        content: '';
-        position: absolute;
-        top: -10px;
-        left: -10px;
-        right: -10px;
-        bottom: -10px;
-        background: radial-gradient(circle, rgba(147, 197, 253, 0.3) 0%, transparent 70%);
-        border-radius: 50%;
-        animation: starryPulse 3s ease-in-out infinite;
-        z-index: -1;
-    }
-
-    @keyframes starryPulse {
-        0%, 100% {
-            transform: scale(1);
-            opacity: 0.6;
-        }
-        50% {
-            transform: scale(1.1);
-            opacity: 0.8;
-        }
-    }
-
-    body.theme-starry .mdui-img-circle:hover {
-        transform: scale(1.05) rotate(5deg);
-        border-color: rgba(147, 197, 253, 0.6);
-        box-shadow:
-            0 0 40px rgba(147, 197, 253, 0.6),
-            0 0 80px rgba(147, 51, 234, 0.3),
-            0 12px 40px rgba(0, 0, 0, 0.4);
-    }
-
-    /* 标题 - 星光渐变文字 */
-    body.theme-starry h1 {
-        font-size: 32px;
-        font-weight: 700;
-        text-align: center;
-        margin: 0 0 40px 0;
-        position: relative;
-        background: linear-gradient(135deg, #e0e6ff 0%, #c7d2fe 25%, #a5b4fc 50%, #818cf8 75%, #6366f1 100%);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-size: 200% 200%;
-        animation: starryTextShimmer 4s ease-in-out infinite;
-        text-shadow: 0 0 20px rgba(147, 197, 253, 0.5);
-        letter-spacing: -0.5px;
-    }
-
-    @keyframes starryTextShimmer {
-        0%, 100% {
-            background-position: 0% 50%;
-            filter: brightness(1);
-        }
-        50% {
-            background-position: 100% 50%;
-            filter: brightness(1.2);
-        }
-    }
-
-    body.theme-starry h1::after {
-        content: '';
-        position: absolute;
-        bottom: -16px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 80px;
-        height: 3px;
-        background: linear-gradient(90deg, transparent, #a5b4fc, #818cf8, transparent);
-        border-radius: 2px;
-        animation: starryGlowLine 3s ease-in-out infinite;
-    }
-
-    @keyframes starryGlowLine {
-        0%, 100% {
-            opacity: 0.6;
-            transform: translateX(-50%) scaleX(1);
-        }
-        50% {
-            opacity: 1;
-            transform: translateX(-50%) scaleX(1.2);
-        }
-    }
-
-    /* 正文 - 梦幻色彩 */
-    body.theme-starry p {
-        color: #cbd5e1;
-        font-size: 16px;
-        line-height: 1.7;
-        margin-bottom: 20px;
-        font-weight: 400;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    }
-
-    body.theme-starry strong {
-        color: #e0e6ff;
-        font-weight: 600;
-        background: linear-gradient(135deg, rgba(147, 197, 253, 0.2), rgba(168, 85, 247, 0.2));
-        padding: 2px 6px;
-        border-radius: 6px;
-        border: 1px solid rgba(147, 197, 253, 0.2);
-        text-shadow: 0 0 8px rgba(147, 197, 253, 0.5);
-    }
-
-    body.theme-starry hr {
-        border: none;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, rgba(147, 197, 253, 0.5), transparent);
-        margin: 32px 0;
-        position: relative;
-        overflow: visible;
-    }
-
-    body.theme-starry hr::before {
-        content: '✦';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: #0a0a1a;
-        color: #a5b4fc;
-        padding: 0 16px;
-        font-size: 18px;
-        animation: starrySymbolRotate 8s linear infinite;
-    }
-
-    @keyframes starrySymbolRotate {
-        0% { transform: translate(-50%, -50%) rotate(0deg); }
-        100% { transform: translate(-50%, -50%) rotate(360deg); }
-    }
-
-    /* 按钮 - 星光交互效果 */
-    body.theme-starry .mdui-btn {
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
-        color: #ffffff;
-        border: 1px solid rgba(147, 197, 253, 0.3);
-        border-radius: 12px;
-        font-weight: 600;
-        font-size: 16px;
-        padding: 16px 24px;
-        min-height: 52px;
-        letter-spacing: 0.3px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-        position: relative;
-        overflow: hidden;
-        box-shadow:
-            0 4px 12px rgba(99, 102, 241, 0.3),
-            0 0 0 1px rgba(147, 197, 253, 0.2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-    }
-
-    /* 按钮内部星光流动 */
-    body.theme-starry .mdui-btn::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-        transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 1;
-    }
-
-    body.theme-starry .mdui-btn:hover {
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
-        transform: translateY(-2px);
-        box-shadow:
-            0 8px 25px rgba(99, 102, 241, 0.5),
-            0 0 0 2px rgba(147, 197, 253, 0.4),
-            0 0 20px rgba(147, 197, 253, 0.3);
-        border-color: rgba(147, 197, 253, 0.6);
-    }
-
-    body.theme-starry .mdui-btn:hover::before {
-        left: 100%;
-    }
-
-    body.theme-starry .mdui-btn:active {
-        transform: translateY(-1px);
-        box-shadow:
-            0 4px 12px rgba(99, 102, 241, 0.4),
-            0 0 0 1px rgba(147, 197, 253, 0.3);
-    }
-
-    /* 主操作按钮 - 特殊星光效果 */
-    body.theme-starry .mdui-btn.mdui-color-theme-accent {
-        background: linear-gradient(135deg, #ec4899, #f43f5e);
-        box-shadow:
-            0 4px 12px rgba(236, 72, 153, 0.3),
-            0 0 0 1px rgba(251, 207, 232, 0.3);
-    }
-
-    body.theme-starry .mdui-btn.mdui-color-theme-accent:hover {
-        background: linear-gradient(135deg, #db2777, #e11d48);
-        box-shadow:
-            0 8px 25px rgba(236, 72, 153, 0.5),
-            0 0 0 2px rgba(251, 207, 232, 0.5),
-            0 0 20px rgba(251, 207, 232, 0.4);
-    }
-
-    /* 次要按钮 */
-    body.theme-starry .mdui-btn.mdui-color-red {
-        background: linear-gradient(135deg, #64748b, #475569);
-        box-shadow:
-            0 4px 12px rgba(100, 116, 139, 0.3),
-            0 0 0 1px rgba(148, 163, 184, 0.3);
-    }
-
-    body.theme-starry .mdui-btn.mdui-color-red:hover {
-        background: linear-gradient(135deg, #475569, #334155);
-        box-shadow:
-            0 8px 25px rgba(100, 116, 139, 0.5),
-            0 0 0 2px rgba(148, 163, 184, 0.5);
-    }
-
-    /* 输入框 - 星空边框效果 */
-    body.theme-starry .mdui-textfield {
-        margin: 32px 0;
-        position: relative;
-    }
-
-    body.theme-starry .mdui-textfield-input {
-        background: rgba(15, 23, 42, 0.7);
-        border: 2px solid rgba(147, 197, 253, 0.2);
-        border-radius: 16px;
-        color: #e0e6ff;
-        font-size: 16px;
-        padding: 18px 24px;
-        height: 56px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        font-weight: 500;
-        backdrop-filter: blur(10px);
-        box-shadow:
-            inset 0 2px 4px rgba(0, 0, 0, 0.2),
-            0 0 0 1px rgba(147, 197, 253, 0.1);
-    }
-
-    body.theme-starry .mdui-textfield-input:focus {
-        background: rgba(15, 23, 42, 0.9);
-        border-color: rgba(147, 197, 253, 0.6);
-        outline: none;
-        box-shadow:
-            0 0 0 4px rgba(147, 197, 253, 0.2),
-            inset 0 2px 4px rgba(0, 0, 0, 0.2),
-            0 0 20px rgba(147, 197, 253, 0.3);
-        transform: translateY(-2px);
-    }
-
-    body.theme-starry .mdui-textfield-input::placeholder {
-        color: #94a3b8;
-        font-weight: 400;
-        transition: all 0.3s ease;
-    }
-
-    body.theme-starry .mdui-textfield-input:focus::placeholder {
-        color: #64748b;
-        opacity: 0.8;
-    }
-
-    /* 解析结果区域 - 星空展示效果 */
-    body.theme-starry .down {
-        margin-top: 48px;
-        padding: 32px;
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid rgba(147, 197, 253, 0.2);
-        border-radius: 20px;
-        backdrop-filter: blur(15px);
-        box-shadow:
-            0 8px 32px rgba(0, 0, 0, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        position: relative;
-        overflow: hidden;
-    }
-
-    /* 星空装饰背景 */
-    body.theme-starry .down::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-image:
-            radial-gradient(circle at 10% 10%, rgba(147, 197, 253, 0.05) 2px, transparent 2px),
-            radial-gradient(circle at 90% 90%, rgba(168, 85, 247, 0.04) 3px, transparent 3px),
-            radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.03) 2px, transparent 2px);
-        background-size: 80px 80px, 120px 120px, 100px 100px;
-        animation: starryBackgroundFloat 20s linear infinite;
-        pointer-events: none;
-        z-index: -1;
-    }
-
-    @keyframes starryBackgroundFloat {
-        0% { transform: rotate(0deg) translateY(0px); }
-        100% { transform: rotate(360deg) translateY(-10px); }
-    }
-
-    body.theme-starry .down h4 {
-        font-size: 24px;
-        font-weight: 700;
-        color: #e0e6ff;
-        text-align: center;
-        margin: 0 0 32px 0;
-        position: relative;
-        background: linear-gradient(135deg, #e0e6ff, #c7d2fe, #a5b4fc);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-size: 200% 200%;
-        animation: starryTextShimmer 5s ease-in-out infinite;
-        text-shadow: 0 0 15px rgba(147, 197, 253, 0.5);
-    }
-
-    body.theme-starry .down h4::after {
-        content: '';
-        position: absolute;
-        bottom: -12px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 60px;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #a5b4fc, transparent);
-        border-radius: 1px;
-        animation: starryGlowLine 4s ease-in-out infinite;
-    }
-
-    /* 图片展示区域 - 悬浮效果 */
-    body.theme-starry .down div[style*="display: inline-block"] {
-        background: rgba(15, 23, 42, 0.5);
-        border: 1px solid rgba(147, 197, 253, 0.2);
-        border-radius: 16px;
-        padding: 20px;
-        margin: 16px;
-        text-align: center;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        backdrop-filter: blur(10px);
-        box-shadow:
-            0 4px 15px rgba(0, 0, 0, 0.2),
-            0 0 0 1px rgba(147, 197, 253, 0.1);
-        position: relative;
-        overflow: hidden;
-    }
-
-    body.theme-starry .down div[style*="display: inline-block"]::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #a5b4fc, transparent);
-        transform: translateX(-100%);
-        transition: transform 0.6s ease;
-    }
-
-    body.theme-starry .down div[style*="display: inline-block"]:hover {
-        background: rgba(15, 23, 42, 0.8);
-        border-color: rgba(147, 197, 253, 0.5);
-        transform: translateY(-6px) scale(1.02);
-        box-shadow:
-            0 12px 30px rgba(0, 0, 0, 0.4),
-            0 0 0 2px rgba(147, 197, 253, 0.3),
-            0 0 25px rgba(147, 197, 253, 0.2);
-    }
-
-    body.theme-starry .down div[style*="display: inline-block"]:hover::before {
-        transform: translateX(100%);
-    }
-
-    body.theme-starry .down img {
-        border-radius: 12px;
-        border: 2px solid rgba(147, 197, 253, 0.2);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        transition: all 0.4s ease;
-        max-width: 200px;
-        height: auto;
-    }
-
-    body.theme-starry .down img:hover {
-        transform: scale(1.05);
-        border-color: rgba(147, 197, 253, 0.6);
-        box-shadow:
-            0 8px 20px rgba(0, 0, 0, 0.4),
-            0 0 20px rgba(147, 197, 253, 0.3);
-    }
-
-    body.theme-starry .down .mdui-btn {
-        margin: 10px;
-        min-width: 120px;
-        max-width: 160px;
-        font-size: 15px;
-        padding: 14px 24px;
-        min-height: 48px;
-        border-radius: 12px;
-        backdrop-filter: blur(5px);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-    }
-
-    /* 错误提示优化 */
-    body.theme-starry .mdui-snackbar {
-        background: rgba(15, 23, 42, 0.95) !important;
-        color: #e0e6ff !important;
-        border: 1px solid rgba(147, 197, 253, 0.3) !important;
-        backdrop-filter: blur(15px) !important;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
-        border-radius: 12px !important;
-    }
-
-    /* 主题选择器适配 */
-    body.theme-starry .theme-selector {
-        background: rgba(15, 23, 42, 0.95);
-        border: 1px solid rgba(147, 197, 253, 0.3);
-        color: #e0e6ff;
-        backdrop-filter: blur(15px);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-
-    body.theme-starry .theme-option:hover {
-        background: rgba(147, 197, 253, 0.15);
-    }
-
-    body.theme-starry .theme-option.active {
-        background: rgba(147, 197, 253, 0.25);
-        border-color: rgba(147, 197, 253, 0.4);
-    }
-
-    /* 加载状态 - 星星闪烁 */
-    body.theme-starry .loading {
-        color: #a5b4fc;
-        position: relative;
-        display: inline-block;
-    }
-
-    body.theme-starry .loading::after {
-        content: '✦';
-        animation: starryLoading 1.5s ease-in-out infinite;
-        margin-left: 4px;
-        display: inline-block;
-    }
-
-    @keyframes starryLoading {
-        0%, 100% {
-            opacity: 0.3;
-            transform: rotate(0deg) scale(1);
-        }
-        50% {
-            opacity: 1;
-            transform: rotate(180deg) scale(1.2);
-        }
-    }
-
-    /* 响应式设计 */
-    @media (max-width: 768px) {
-        body.theme-starry .mdui-container {
-            margin: 20px 16px;
-            padding: 0;
-        }
-
-        body.theme-starry .mdui-card {
-            padding: 32px 24px;
-            border-radius: 16px;
-        }
-
-        body.theme-starry h1 {
-            font-size: 28px;
-            margin-bottom: 32px;
-        }
-
-        body.theme-starry .mdui-btn {
-            width: 100%;
-            margin: 8px 0;
-            font-size: 16px;
+        .page-header {
+            height: 78px;
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            padding: 0 38px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 800;
+            font-size: 20px;
+        }
+
+        .brand-mark {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: var(--accent);
+            box-shadow: 0 10px 24px rgba(255, 36, 66, 0.24);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ghost-link {
+            height: 36px;
+            padding: 0 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            color: #555;
+            background: rgba(255, 255, 255, 0.74);
+        }
+
+        .layout {
+            width: min(1280px, calc(100vw - 48px));
+            margin: 0 auto 44px;
+            display: grid;
+            grid-template-columns: 0.92fr 1.08fr;
+            gap: 28px;
+            align-items: start;
+        }
+
+        .left-pane,
+        .right-pane {
+            min-width: 0;
+        }
+
+        .hero-title {
+            margin: 58px 0 0;
+            font-size: 54px;
+            line-height: 1.05;
+            font-weight: 900;
+        }
+
+        .hero-title span,
+        .hero-subtitle span,
+        .runtime strong {
+            color: var(--accent);
+        }
+
+        .hero-subtitle {
+            margin: 18px 0 18px;
+            max-width: 520px;
+            font-size: 18px;
+            line-height: 1.8;
+            color: #343434;
+        }
+
+        .tip-row {
+            width: fit-content;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent);
+            font-size: 14px;
+            margin-bottom: 22px;
+        }
+
+        .platform-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 0 0 24px;
+        }
+
+        .platform-chip {
+            min-width: 52px;
+            height: 52px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            display: grid;
+            place-items: center;
+            background: #fff;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+            color: #3b3b3b;
+            font-weight: 700;
+        }
+
+        .search-panel,
+        .result-panel,
+        .empty-panel,
+        .modal-panel {
+            border: 1px solid rgba(238, 238, 238, 0.9);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+        }
+
+        .search-panel {
+            padding: 18px;
+            max-width: 570px;
+        }
+
+        .search-tip {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            color: #5c5c5c;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .search-box {
+            height: 54px;
+            display: grid;
+            grid-template-columns: 46px 1fr;
+            align-items: center;
+            border: 1px solid #dedede;
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .search-icon {
+            color: var(--accent);
+            display: grid;
+            place-items: center;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        #url {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            outline: 0;
+            font-size: 15px;
+            padding-right: 16px;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .btn {
+            height: 42px;
+            border: 0;
+            border-radius: 8px;
+            padding: 0 18px;
+            display: inline-flex;
+            align-items: center;
             justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+            white-space: nowrap;
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn-primary {
+            flex: 1;
+            color: #fff;
+            background: var(--accent);
+            font-weight: 800;
+            box-shadow: 0 12px 26px rgba(255, 36, 66, 0.22);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-dark);
+        }
+
+        .btn-secondary {
+            color: #333;
+            background: #f1f1f2;
+        }
+
+        .btn-dark {
+            color: #fff;
+            background: #151515;
+        }
+
+        .btn-line {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #333;
+        }
+
+        .history {
+            display: none;
+            margin: 12px 0 0;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .history-item {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            padding: 10px 12px;
+            border-top: 1px solid var(--line);
+            color: #484848;
+            font-size: 13px;
+        }
+
+        .history-item:first-child {
+            border-top: 0;
+        }
+
+        .history-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .history-delete {
+            border: 0;
+            background: none;
+            color: var(--accent);
+            cursor: pointer;
+        }
+
+        .footer {
+            margin-top: 26px;
+            color: #777;
+            font-size: 13px;
+            line-height: 1.9;
+        }
+
+        .footer-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 8px;
+        }
+
+        .right-pane {
+            padding-top: 22px;
+        }
+
+        .empty-panel {
+            min-height: 620px;
+            display: grid;
+            place-items: center;
+            text-align: center;
+            padding: 36px;
+            color: var(--muted);
+        }
+
+        .empty-icon {
+            width: 82px;
+            height: 82px;
+            margin: 0 auto 16px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: #1c1c1f;
+            font-size: 34px;
+            font-weight: 900;
+        }
+
+        .result-panel {
+            display: none;
+            overflow: hidden;
+        }
+
+        .result-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 14px;
+            border-bottom: 1px solid var(--line);
+            background: #fff;
+        }
+
+        .result-header {
+            padding: 20px 22px 18px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .author-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #eee;
+        }
+
+        .author-name {
+            font-weight: 800;
+            font-size: 16px;
+        }
+
+        .author-sub {
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .content-title {
+            font-weight: 900;
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+
+        .content-desc {
+            color: #4d4d4d;
+            white-space: pre-wrap;
+            line-height: 1.7;
+            word-break: break-word;
+        }
+
+        .quality-row {
+            display: none;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 14px 18px 0;
+        }
+
+        .quality-btn {
+            height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 0 12px;
+            background: #fff;
+            cursor: pointer;
+            color: #454545;
+        }
+
+        .quality-btn.active {
+            color: #fff;
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            padding: 18px;
+        }
+
+        .result-grid.single {
+            grid-template-columns: 1fr;
+        }
+
+        .media-card {
+            position: relative;
+            min-height: 180px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #111;
+            cursor: pointer;
+        }
+
+        .media-card img,
+        .media-card video {
+            width: 100%;
+            height: 100%;
+            min-height: 220px;
+            max-height: 520px;
+            object-fit: cover;
+            display: block;
+            background: #111;
+        }
+
+        .media-card.video-card video {
+            object-fit: contain;
+            background: #050505;
+        }
+
+        .media-badge,
+        .media-download {
+            position: absolute;
+            z-index: 2;
+            border-radius: 999px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.72);
+            backdrop-filter: blur(8px);
+        }
+
+        .media-badge {
+            left: 10px;
+            top: 10px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .media-download {
+            right: 10px;
+            bottom: 10px;
+            height: 32px;
+            border: 0;
+            padding: 0 12px;
+            cursor: pointer;
+        }
+
+        .loading {
+            position: fixed;
+            inset: 0;
+            display: none;
+            z-index: 60;
+            place-items: center;
+            background: rgba(255, 255, 255, 0.76);
+            backdrop-filter: blur(12px);
+        }
+
+        .loading-card {
+            width: min(320px, calc(100vw - 48px));
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: var(--shadow);
+            padding: 24px;
             text-align: center;
         }
 
-        body.theme-starry .mdui-textfield-input {
-            font-size: 16px; /* 防止iOS缩放 */
+        .spinner {
+            width: 42px;
+            height: 42px;
+            margin: 0 auto 14px;
+            border-radius: 50%;
+            border: 4px solid #f0f0f0;
+            border-top-color: var(--accent);
+            animation: spin 0.9s linear infinite;
         }
 
-        body.theme-starry .down {
-            padding: 24px 16px;
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
 
-        body.theme-starry .down div[style*="display: inline-block"] {
+        .modal,
+        .viewer {
+            position: fixed;
+            inset: 0;
+            display: none;
+            z-index: 70;
+            background: rgba(0, 0, 0, 0.68);
+            padding: 28px;
+        }
+
+        .modal {
+            place-items: center;
+        }
+
+        .modal-panel {
+            width: min(760px, calc(100vw - 36px));
+            max-height: calc(100vh - 56px);
+            overflow: auto;
+            padding: 22px;
+            background: #fff;
+        }
+
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .modal-title {
+            font-size: 22px;
+            font-weight: 900;
+        }
+
+        .close-btn {
+            width: 34px;
+            height: 34px;
+            border: 0;
+            border-radius: 8px;
+            background: #f0f0f0;
+            cursor: pointer;
+            font-size: 20px;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .field label {
             display: block;
-            margin: 16px auto;
-            max-width: 280px;
+            margin-bottom: 6px;
+            color: #555;
+            font-size: 14px;
+            font-weight: 700;
         }
 
-        body.theme-starry .down img {
-            width: 100% !important;
-            max-width: 240px;
-        }
-    }
-
-    /* 暗色模式适配 */
-    @media (prefers-color-scheme: dark) {
-        body.theme-starry {
-            background: #050510;
-        }
-    }
-
-    /* 减少动画效果适配 */
-    @media (prefers-reduced-motion: reduce) {
-        body.theme-starry *,
-        body.theme-starry *::before,
-        body.theme-starry *::after {
-            animation-duration: 0.01ms !important;
-            animation-iteration-count: 1 !important;
-            transition-duration: 0.01ms !important;
-        }
-    }
-
-    /* Zaha Hadid 流动几何主题 */
-    body.theme-hadid {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        color: #ffffff;
-        font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-    }
-
-    body.theme-hadid::before {
-        background:
-            linear-gradient(45deg, transparent 30%, rgba(102, 126, 234, 0.15) 50%, transparent 70%),
-            linear-gradient(-45deg, transparent 30%, rgba(118, 75, 162, 0.1) 50%, transparent 70%),
-            radial-gradient(circle at 20% 80%, rgba(102, 126, 234, 0.12) 0%, transparent 50%),
-            radial-gradient(circle at 80% 20%, rgba(118, 75, 162, 0.08) 0%, transparent 50%);
-        background-size: 300% 300%, 200% 200%, 150% 150%, 100% 100%;
-        animation: hadidFlow 15s ease-in-out infinite;
-    }
-
-    @keyframes hadidFlow {
-        0% { background-position: 0% 0%, 100% 100%, 20% 80%, 80% 20%; }
-        25% { background-position: 100% 0%, 0% 100%, 80% 20%, 20% 80%; }
-        50% { background-position: 100% 100%, 0% 0%, 50% 50%, 50% 50%; }
-        75% { background-position: 0% 100%, 100% 0%, 80% 80%, 20% 20%; }
-        100% { background-position: 0% 0%, 100% 100%, 20% 80%, 80% 20%; }
-    }
-
-    body.theme-hadid .mdui-card {
-        background: rgba(26, 26, 46, 0.85);
-        backdrop-filter: blur(15px);
-        border: 2px solid rgba(102, 126, 234, 0.3);
-        border-radius: 0 15px 15px 0;
-        clip-path: polygon(0 0, 100% 0, 100% 95%, 95% 100%, 0 100%);
-        opacity: 1;
-        box-shadow:
-            0 8px 32px rgba(0, 0, 0, 0.4),
-            0 0 0 1px rgba(102, 126, 234, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        position: relative;
-        overflow: hidden;
-        padding: 1.5em;
-    }
-
-    /* Hadid主题紧凑布局 - 添加容器样式 */
-    body.theme-hadid .mdui-container {
-        max-width: 900px;
-        margin: 2em auto;
-        padding: 0 20px;
-    }
-
-    body.theme-hadid .mdui-card::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: linear-gradient(
-            45deg,
-            transparent 30%,
-            rgba(102, 126, 234, 0.03) 50%,
-            transparent 70%
-        );
-        animation: hadidCardFlow 20s linear infinite;
-        pointer-events: none;
-    }
-
-    @keyframes hadidCardFlow {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-
-    body.theme-hadid .mdui-btn {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        border: 2px solid rgba(102, 126, 234, 0.5);
-        border-radius: 0 25px 25px 0;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        clip-path: polygon(5% 0%, 100% 0%, 95% 100%, 0% 100%);
-        transition: all 0.3s ease;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-
-    body.theme-hadid .mdui-btn::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-        transition: left 0.5s ease;
-    }
-
-    body.theme-hadid .mdui-btn:hover {
-        transform: translateY(-2px) translateX(2px);
-        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
-        background: linear-gradient(135deg, #764ba2, #667eea);
-        border-color: rgba(118, 75, 162, 0.7);
-    }
-
-    body.theme-hadid .mdui-btn:hover::before {
-        left: 100%;
-    }
-
-    body.theme-hadid .mdui-textfield-input {
-        background: rgba(26, 26, 46, 0.7);
-        border: 2px solid rgba(102, 126, 234, 0.4);
-        border-radius: 0 20px 20px 0;
-        color: #ffffff;
-        backdrop-filter: blur(10px);
-        font-weight: 500;
-        transition: all 0.3s ease;
-        box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
-    }
-
-    body.theme-hadid .mdui-textfield-input:focus {
-        background: rgba(26, 26, 46, 0.9);
-        border-color: rgba(102, 126, 234, 0.8);
-        box-shadow:
-            0 0 0 3px rgba(102, 126, 234, 0.2),
-            inset 0 2px 4px rgba(0,0,0,0.3);
-    }
-
-    body.theme-hadid .mdui-textfield-input::placeholder {
-        color: rgba(255, 255, 255, 0.6);
-        font-style: italic;
-    }
-
-    body.theme-hadid h1, body.theme-hadid h2, body.theme-hadid h3 {
-        font-weight: 700;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        color: #ffffff;
-        text-shadow:
-            0 2px 4px rgba(0,0,0,0.5),
-            0 0 20px rgba(102, 126, 234, 0.3);
-        margin-bottom: 1em;
-    }
-
-    body.theme-hadid h1 {
-        font-size: 2.2rem;
-        background: linear-gradient(45deg, #ffffff, #667eea, #764ba2);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-size: 200% 200%;
-        animation: hadidTextGradient 8s ease-in-out infinite;
-    }
-
-    @keyframes hadidTextGradient {
-        0%, 100% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-    }
-
-    body.theme-hadid p {
-        color: rgba(255, 255, 255, 0.9);
-        line-height: 1.5;
-        font-weight: 400;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-        margin-bottom: 1em;
-    }
-
-    body.theme-hadid strong {
-        color: #667eea;
-        font-weight: 700;
-        text-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
-    }
-
-    body.theme-hadid .mdui-img-circle {
-        border: 3px solid rgba(102, 126, 234, 0.5);
-        box-shadow:
-            0 0 30px rgba(102, 126, 234, 0.4),
-            0 8px 16px rgba(0,0,0,0.3);
-    }
-
-    body.theme-hadid .down {
-        margin-top: 1.5em;
-        padding-top: 1.5em;
-        border-top: 2px solid rgba(102, 126, 234, 0.3);
-    }
-
-    body.theme-hadid .down .mdui-btn {
-        margin: 0.5em;
-        min-width: 140px;
-        position: relative;
-    }
-
-    body.theme-hadid .down .mdui-btn::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        right: 0;
-        width: 0;
-        height: 0;
-        border-style: solid;
-        border-width: 0 15px 15px 0;
-        border-color: transparent #667eea transparent transparent;
-        filter: drop-shadow(-2px 2px 3px rgba(0,0,0,0.3));
-    }
-
-    /* 解析结果区域优化 - Zaha Hadid主题 */
-    body.theme-hadid .down {
-        background: rgba(26, 26, 46, 0.6);
-        border: 1px solid rgba(102, 126, 234, 0.3);
-        border-radius: 12px;
-        padding: 1.2em;
-        margin-top: 1.5em;
-        backdrop-filter: blur(10px);
-        box-shadow:
-            0 8px 32px rgba(0, 0, 0, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    }
-
-    body.theme-hadid .down h4 {
-        color: #ffffff;
-        font-weight: 700;
-        font-size: 1.1rem;
-        text-shadow:
-            0 2px 4px rgba(0,0,0,0.5),
-            0 0 15px rgba(102, 126, 234, 0.4);
-        margin-bottom: 1em;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        background: linear-gradient(45deg, #ffffff, #667eea);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-size: 150% 150%;
-        animation: hadidTextGradient 6s ease-in-out infinite;
-    }
-
-    body.theme-hadid .down .mdui-btn {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.8), rgba(118, 75, 162, 0.8));
-        color: #ffffff;
-        border: 2px solid rgba(102, 126, 234, 0.6);
-        font-weight: 600;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.4);
-        position: relative;
-        backdrop-filter: blur(5px);
-        transition: all 0.3s ease;
-    }
-
-    body.theme-hadid .down .mdui-btn:hover {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.95), rgba(118, 75, 162, 0.95));
-        border-color: rgba(102, 126, 234, 0.9);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
-    }
-
-    /* 图片展示区域优化 */
-    body.theme-hadid .down div[style*="display: inline-block"] {
-        background: rgba(26, 26, 46, 0.4);
-        border: 1px solid rgba(102, 126, 234, 0.4);
-        border-radius: 8px;
-        padding: 0.8em;
-        margin: 0.8em;
-        transition: all 0.3s ease;
-        backdrop-filter: blur(5px);
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    }
-
-    body.theme-hadid .down div[style*="display: inline-block"]:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-        border-color: rgba(102, 126, 234, 0.7);
-    }
-
-    body.theme-hadid .down img {
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        transition: all 0.3s ease;
-        border: 2px solid rgba(102, 126, 234, 0.3);
-    }
-
-    body.theme-hadid .down img:hover {
-        transform: scale(1.02);
-        border-color: rgba(102, 126, 234, 0.6);
-        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-    }
-
-    /* 图集标题特殊样式 */
-    body.theme-hadid .down h4:first-of-type {
-        position: relative;
-        padding-left: 20px;
-    }
-
-    body.theme-hadid .down h4:first-of-type::before {
-        content: '◆';
-        position: absolute;
-        left: 0;
-        color: #667eea;
-        font-size: 1.2em;
-        animation: hadidPulse 2s ease-in-out infinite;
-    }
-
-    @keyframes hadidPulse {
-        0%, 100% { opacity: 0.6; transform: scale(1); }
-        50% { opacity: 1; transform: scale(1.1); }
-    }
-
-    /* 错误提示优化 */
-    body.theme-hadid .mdui-snackbar {
-        background: rgba(26, 26, 46, 0.95) !important;
-        color: white !important;
-        border: 1px solid rgba(102, 126, 234, 0.5) !important;
-        backdrop-filter: blur(10px) !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.5) !important;
-    }
-
-    /* 主题选择器适配 */
-    body.theme-hadid .theme-selector {
-        background: rgba(26, 26, 46, 0.95);
-        border: 1px solid rgba(102, 126, 234, 0.3);
-        color: white;
-        backdrop-filter: blur(10px);
-    }
-
-    body.theme-hadid .theme-option:hover {
-        background: rgba(102, 126, 234, 0.2);
-    }
-
-    body.theme-hadid .theme-option.active {
-        background: rgba(102, 126, 234, 0.3);
-    }
-
-    /* 通用按钮样式 - 修复经典MDUI主题下解析按钮样式问题 */
-    .mdui-btn.mdui-color-theme-accent {
-        background: #ff4081 !important;
-        color: #ffffff !important;
-        border: none;
-        border-radius: 4px;
-        text-transform: none;
-        font-weight: 500;
-        transition: all 0.3s ease;
-    }
-
-    .mdui-btn.mdui-color-theme-accent:hover {
-        background: #f50057 !important;
-        box-shadow: 0 4px 8px rgba(255, 64, 129, 0.3);
-    }
-
-    .mdui-btn.mdui-color-red {
-        background: #f44336 !important;
-        color: #ffffff !important;
-        border: none;
-        border-radius: 4px;
-        text-transform: none;
-        font-weight: 500;
-        transition: all 0.3s ease;
-    }
-
-    .mdui-btn.mdui-color-red:hover {
-        background: #d32f2f !important;
-        box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
-    }
-
-    /* 基础样式重置 */
-    body {
-        transition: all 0.5s ease;
-    }
-
-    body::before {
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        opacity: 0.3;
-        z-index: -1;
-        content: "";
-        position: fixed;
-    }
-
-    .mdui-textfield-input {
-        float: left;
-        width: 75%;
-        text-transform: none;
-        transition: all 0.3s ease;
-    }
-
-    .mdui-btn {
-        width: 12.5%;
-        transition: all 0.3s ease;
-    }
-
-    .mdui-container {
-        max-width: 900px;
-        margin-top: 6em;
-        margin-bottom: 4em;
-        transition: all 0.3s ease;
-    }
-
-    .mdui-btn, .mdui-fab {
-        min-width: 0px;
-    }
-
-    .mdui-card {
-        padding: 2em;
-        transition: all 0.5s ease;
-    }
-
-    .down .mdui-btn {
-        width: auto;
-        margin-left: 1.5em;
-        margin-bottom: 0.5em;
-    }
-
-    p {
-        opacity: 0.8;
-    }
-
-    .mdui-card-content {
-        padding: 16px 0 0 0;
-    }
-
-    .mdui-textfield.mdui-textfield-floating-label {
-        display: flex;
-        align-items: center;
-    }
-
-    .mdui-textfield-input, .mdui-btn {
-        margin-right: 8px;
-    }
-
-    /* 移动端适配 */
-    @media (max-width: 600px) {
-        .theme-selector {
-            top: 10px;
-            right: 10px;
-            min-width: 160px;
-            padding: 10px;
-        }
-
-        .mdui-container {
-            margin-top: 4em;
-            margin-bottom: 2em;
-        }
-
-        .mdui-card {
-            padding: 1em;
-        }
-
-        .mdui-textfield-input {
+        .field textarea,
+        .field input {
             width: 100%;
-            float: none;
+            min-height: 44px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px 12px;
+            outline: 0;
+            resize: vertical;
         }
 
-        .mdui-btn {
-            width: 100%;
-            margin-top: 0.5em;
+        .field textarea:focus,
+        .field input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
         }
 
-        .down .mdui-btn {
-            width: 100%;
-            margin-left: 0;
+        .viewer {
+            grid-template-rows: 1fr auto;
+            gap: 14px;
         }
 
-        .mdui-textfield.mdui-textfield-floating-label {
-            flex-direction: column;
+        .viewer-stage {
+            min-height: 0;
+            display: grid;
+            place-items: center;
         }
 
-        .mdui-textfield-input, .mdui-btn {
-            margin-right: 0;
-        }
-    }
-
-    @media (max-width: 400px) {
-        .theme-selector {
-            position: relative;
-            top: auto;
-            right: auto;
-            margin-bottom: 20px;
-        }
-    }
-
-    /* 主题切换动画 */
-    body {
-        transition: background 0.8s ease, color 0.8s ease;
-    }
-
-    .mdui-card, .mdui-btn, .mdui-textfield-input {
-        transition: all 0.5s ease;
-    }
-</style>
-
-<!-- 主题选择器 -->
-<div class="theme-selector" id="themeSelector">
-    <div class="theme-toggle" onclick="toggleThemeSelector()">
-        <span>🎨 主题</span>
-        <span id="toggleIcon">▼</span>
-    </div>
-    <div class="theme-options">
-        <div class="theme-option active" data-theme="original" onclick="setTheme('original')">
-            <div class="theme-preview" style="background: linear-gradient(135deg, #CE9FFC, #7367F0);"></div>
-            <div class="theme-name">经典MDUI</div>
-            <div class="theme-designer">Original</div>
-        </div>
-        <div class="theme-option" data-theme="rams" onclick="setTheme('rams')">
-            <div class="theme-preview" style="background: #2c3e50;"></div>
-            <div class="theme-name">极简功能</div>
-            <div class="theme-designer">Dieter Rams</div>
-        </div>
-        <div class="theme-option" data-theme="vignelli" onclick="setTheme('vignelli')">
-            <div class="theme-preview" style="background: linear-gradient(45deg, #ff6b6b, #4ecdc4);"></div>
-            <div class="theme-name">现代网格</div>
-            <div class="theme-designer">Massimo Vignelli</div>
-        </div>
-        <div class="theme-option" data-theme="kusama" onclick="setTheme('kusama')">
-            <div class="theme-preview" style="background: #d81b60; border-radius: 50%;"></div>
-            <div class="theme-name">波点艺术</div>
-            <div class="theme-designer">Yayoi Kusama</div>
-        </div>
-        <div class="theme-option" data-theme="hadid" onclick="setTheme('hadid')">
-            <div class="theme-preview" style="background: linear-gradient(135deg, #667eea, #764ba2);"></div>
-            <div class="theme-name">流动几何</div>
-            <div class="theme-designer">Zaha Hadid</div>
-        </div>
-        <div class="theme-option" data-theme="starry" onclick="setTheme('starry')">
-            <div class="theme-preview" style="background: linear-gradient(135deg, #1a1a2e, #6366f1, #8b5cf6); position: relative; overflow: hidden;">
-                <div style="position: absolute; top: 20%; left: 30%; width: 2px; height: 2px; background: white; border-radius: 50%; box-shadow: 0 0 2px white;"></div>
-                <div style="position: absolute; top: 60%; left: 70%; width: 1px; height: 1px; background: #a5b4fc; border-radius: 50%; box-shadow: 0 0 1px #a5b4fc;"></div>
-                <div style="position: absolute; top: 40%; left: 50%; width: 1px; height: 1px; background: white; border-radius: 50%;"></div>
-            </div>
-            <div class="theme-name">梦幻星空</div>
-            <div class="theme-designer">Kusama & Maeda</div>
-        </div>
-    </div>
-</div>
-
-<main class="mdui-container">
-    <div class="mdui-card">
-        <img class="mdui-img-circle mdui-center" style="width: 150px;" src="https://cdn.jsdelivr.net/gh/5ime/img/avatar.jpg"/>
-        <h1 class='mdui-text-center'>在线短视频去水印解析</h1>
-        <div class="mdui-typo">
-            <p><strong>目前支持: </strong>抖音/皮皮虾/火山/微视/最右/快手/全民小视频/皮皮搞笑/梨视频/西瓜/微博/虎牙/绿洲/好看/逗拍/美拍/新片场/A站/全民K歌/6间房/B站/X(推特)/腾讯视频/搜狐视频/CCTV</p>
-            <p>
-                <strong>温馨提示: </strong><br/>
-                1. 粘贴视频地址时<u>无需删除文案</u><small> 但如果视频链接正确但解析失败请删掉文案后重试</small><br/>
-                2. 点击下载视频跳转时, 可能会被对应网站识别, 报 <u>403 Forbidden</u>, 可以在 下载视频 按钮, 右键复制链接地址, 新开浏览器标签页打开即可
-            </p>
-            <hr/>
-        </div>
-        <div class="mdui-card-content mdui-typo">
-            <div class="mdui-textfield mdui-textfield-floating-label">
-                <label class="mdui-textfield-label">API Token</label>
-                <input class="mdui-textfield-input" type="password" id="apiToken" autocomplete="off" placeholder="用于 x-auth-token 请求头"/>
-            </div>
-            <div class="mdui-textfield mdui-textfield-floating-label">
-                <input class="mdui-textfield-input" type="text" id="url" placeholder="请粘贴视频分享地址" required/>
-                <div class="mdui-textfield-error">
-                    需要解析的视频地址不能为空
-                </div>
-                <!-- 解析按钮 -->
-                <button class="mdui-btn mdui-color-theme-accent mdui-ripple" onclick="setValue()"><span>解析</span></button>
-                <!-- 新增清空按钮 -->
-                <button class="mdui-btn mdui-color-red mdui-ripple" onclick="clearInput()"><span>清空</span></button>
-            </div>
-        </div>
-        <div class="down mdui-text-center"></div>
-        <hr/>
-        <div class="mdui-card-content mdui-typo">
-            <h4>抖音 Cookie 更新</h4>
-            <p style="font-size: 14px; opacity: 0.7;">当抖音实况图或高清视频解析失败时，可在这里更新 PC 端 Cookie，建议包含 ttwid。</p>
-            <div class="mdui-textfield mdui-textfield-floating-label">
-                <label class="mdui-textfield-label">管理员密码</label>
-                <input class="mdui-textfield-input" type="password" id="adminPwd" autocomplete="off" placeholder="输入密码以验证权限"/>
-            </div>
-            <div class="mdui-textfield mdui-textfield-floating-label">
-                <label class="mdui-textfield-label">完整 Cookie 字符串</label>
-                <textarea class="mdui-textfield-input" id="dyCookie" rows="3" placeholder="在此粘贴浏览器获取的 Cookie"></textarea>
-            </div>
-            <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-blue-grey mdui-m-t-2" onclick="submitCookie()">
-                <i class="mdui-icon material-icons">save</i> 更新 Cookie
-            </button>
-        </div>
-        <hr/>
-        <div class="mdui-card-content mdui-typo">
-            <h4>下载代理开关</h4>
-            <p id="downloadProxyModeStatus" style="font-size: 14px; opacity: 0.7;">正在读取...</p>
-            <button id="downloadProxyEnableBtn" class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-green mdui-m-r-1" onclick="setDownloadProxyMode(true)">
-                开启代理下载
-            </button>
-            <button id="downloadProxyDisableBtn" class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-orange" onclick="setDownloadProxyMode(false)">
-                暂停代理，只走官方 CDN
-            </button>
-        </div>
-        <hr/>
-        <div class="mdui-card-content mdui-typo">
-            <h4>失败域名记录</h4>
-            <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-red mdui-m-b-1" onclick="clearErrorDomains()">
-                <i class="mdui-icon material-icons">delete_sweep</i> 一键清除
-            </button>
-            <p id="errorDomainStatus" style="font-size: 14px; opacity: 0.7;">正在加载...</p>
-            <div id="errorDomainList" class="mdui-chip-fluid"></div>
-        </div>
-    </div>
-</main>
-
-<script>
-// 主题管理
-let currentTheme = localStorage.getItem('selectedTheme') || 'original';
-
-function toggleThemeSelector() {
-    const selector = document.getElementById('themeSelector');
-    const icon = document.getElementById('toggleIcon');
-    selector.classList.toggle('collapsed');
-    icon.textContent = selector.classList.contains('collapsed') ? '▶' : '▼';
-}
-
-function setTheme(themeName) {
-    // 移除所有主题类
-    document.body.className = '';
-
-    // 添加新主题类
-    if (themeName !== 'original') {
-        document.body.classList.add(`theme-${themeName}`);
-    }
-
-    // 更新主题选择器状态
-    document.querySelectorAll('.theme-option').forEach(option => {
-        option.classList.remove('active');
-    });
-    document.querySelector(`[data-theme="${themeName}"]`).classList.add('active');
-
-    // 保存主题选择
-    currentTheme = themeName;
-    localStorage.setItem('selectedTheme', themeName);
-
-    // 显示主题切换提示
-    showThemeNotification(themeName);
-}
-
-function showThemeNotification(themeName) {
-    const themeNames = {
-        'original': '经典MDUI',
-        'rams': 'Dieter Rams 极简功能',
-        'vignelli': 'Massimo Vignelli 现代网格',
-        'kusama': 'Yayoi Kusama 波点艺术',
-        'hadid': 'Zaha Hadid 流动几何',
-        'starry': '梦幻星空'
-    };
-
-    const message = `已切换到 ${themeNames[themeName]} 主题`;
-
-    // 创建临时提示元素
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0,0,0,0.8);
-        color: white;
-        padding: 12px 24px;
-        border-radius: 25px;
-        z-index: 10000;
-        font-size: 14px;
-        animation: slideDown 0.3s ease;
-    `;
-    notification.textContent = message;
-
-    document.body.appendChild(notification);
-
-    // 3秒后自动消失
-    setTimeout(() => {
-        notification.style.animation = 'slideUp 0.3s ease';
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
-}
-
-function getApiToken() {
-    const input = document.getElementById('apiToken');
-    return input ? input.value.trim() : '';
-}
-
-function saveApiToken() {
-    const token = getApiToken();
-    if (token) {
-        localStorage.setItem('apiToken', token);
-    } else {
-        localStorage.removeItem('apiToken');
-    }
-}
-
-function getLivePhotoUrl(item) {
-    return item.live_photo_url || item.livePhotoUrl || item.live_photo || item.live_url || '';
-}
-
-function escapeHtml(text) {
-    return String(text || '').replace(/[&<>"']/g, function(char) {
-        return {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#39;'
-        }[char];
-    });
-}
-
-function getVideoQualityList(data) {
-    const list = Array.isArray(data.video_urls) ? data.video_urls : (Array.isArray(data.qualities) ? data.qualities : []);
-    return list.filter(function(item) {
-        return item && item.url;
-    });
-}
-
-// 原有的解析功能
-function setValue() {
-    var data = document.getElementById("url").value;
-    var v = data.trim();
-    if (!v) {
-        mdui.snackbar({ message: '需要解析的视频地址不能为空' });
-        return;
-    }
-    saveApiToken();
-    console.log(v);
-
-    var xmlhttp;
-    if (window.XMLHttpRequest) {
-        xmlhttp = new XMLHttpRequest();
-    } else { // code for IE6, IE5
-        xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
-    }
-
-    xmlhttp.open("GET", "/video/share/url/parse?url=" + encodeURIComponent(v), false);
-    const apiToken = getApiToken();
-    if (apiToken) {
-        xmlhttp.setRequestHeader("x-auth-token", apiToken);
-    }
-    xmlhttp.send();
-    var jsonObj = JSON.parse(xmlhttp.responseText);
-    console.log(jsonObj);
-
-    if (jsonObj.code == 200) {
-        mdui.snackbar({
-            message: '解析成功'
-        });
-
-        let successHtml = '<h4>' + jsonObj.data.title + ' </h4>';
-        successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (jsonObj.data.cover_download_url || jsonObj.data.cover_url) + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载封面</span></a>';
-
-        // 如果video_url不为空, 则显示下载视频按钮
-        const videoQualities = getVideoQualityList(jsonObj.data);
-        if (videoQualities.length > 1) {
-            successHtml += '<div style="margin: 1em 0;">';
-            successHtml += '<h4 style="margin-bottom: 0.5em;">视频清晰度</h4>';
-            videoQualities.forEach(function(item, index) {
-                const label = escapeHtml(item.label || item.gear_name || ('清晰度 ' + (index + 1)));
-                successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (item.download_url || item.url) + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
-            });
-            successHtml += '</div>';
-        } else if (jsonObj.data.video_url != "") {
-            const label = videoQualities.length === 1 ? escapeHtml(videoQualities[0].label || '视频') : '视频';
-            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (jsonObj.data.download_url || jsonObj.data.video_url) + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
+        .viewer-stage img,
+        .viewer-stage video {
+            max-width: 100%;
+            max-height: calc(100vh - 126px);
+            border-radius: 8px;
+            background: #000;
         }
 
-        // 如果music_url不为空, 则显示下载音频按钮
-        if (jsonObj.data.music_url && jsonObj.data.music_url != "") {
-            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (jsonObj.data.music_download_url || jsonObj.data.music_url) + '" target="_blank" download="audio" referrerpolicy="no-referrer"><span>下载音频</span></a>';
+        .viewer-toolbar {
+            min-height: 52px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
         }
 
-        // 如果 jsonObj.data.images 是数组， 并且长度大于0, 则img展示图片
-        if (jsonObj.data.images && jsonObj.data.images.length > 0) {
-            successHtml += "<hr/>";
-            successHtml += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1em;">';
-            successHtml += '<h4 style="margin: 0;">图集</h4>';
-
-            // 将图片数据存储到全局变量,避免在HTML属性中传递大量数据
-            const downloadDataId = 'download_data_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            window[downloadDataId] = {
-                images: jsonObj.data.images,
-                title: jsonObj.data.title || ''
-            };
-            // 使用data属性存储ID,点击时读取全局变量
-            successHtml += '<button class="mdui-btn mdui-color-theme-accent mdui-ripple" ' +
-                          'data-download-id="' + downloadDataId + '" ' +
-                          'onclick="handleDownloadClick(this)"><span>下载全部图片</span></button>';
-            successHtml += '</div>';
-
-            jsonObj.data.images.forEach(function (item) {
-                successHtml += '<div style="display: inline-block; margin: 1em; text-align: center;">';
-                successHtml += '<img src="' + item.url + '" style="width: 160px; display: block; margin-bottom: 0.5em;"/>';
-                // 如果 item.live_photo_url 不为空， 显示下载按钮
-                const livePhotoUrl = getLivePhotoUrl(item);
-                if (livePhotoUrl) {
-                    successHtml += '<a class="mdui-btn mdui-btn-raised mdui-color-pink-accent" href="' + (item.live_photo_download_url || livePhotoUrl) + '" target="_blank" download="video" referrerpolicy="no-referrer" style="text-transform: none; margin-top: 0.5em;"><span>下载实况视频</span></a>';
-                }
-
-                successHtml += '</div>';
-            });
+        .viewer-toolbar .btn {
+            height: 40px;
         }
 
-        $(".down").html(successHtml);
-    } else {
-        mdui.snackbar({
-            message: "解析失败,视频不存在或者链接不正确:<br/>" + jsonObj.msg
-        });
-    }
-}
-
-async function submitCookie() {
-    const cookie = document.getElementById('dyCookie').value;
-    const password = document.getElementById('adminPwd').value;
-
-    if (!cookie || !password) {
-        mdui.snackbar({ message: 'Cookie 和密码不能为空' });
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/update_cookie', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                cookie: cookie,
-                password: password
-            })
-        });
-
-        const res = await response.json();
-        if (response.ok && res.code === 200) {
-            mdui.snackbar({ message: res.msg });
-            document.getElementById('adminPwd').value = '';
-        } else {
-            mdui.snackbar({ message: res.detail || res.msg || '更新失败' });
-        }
-    } catch (error) {
-        console.error('Cookie 更新失败:', error);
-        mdui.snackbar({ message: '网络错误，请检查控制台' });
-    }
-}
-
-async function loadErrorDomains() {
-    const list = document.getElementById('errorDomainList');
-    const status = document.getElementById('errorDomainStatus');
-    if (!list || !status) {
-        return;
-    }
-
-    try {
-        status.textContent = '正在刷新...';
-        const response = await fetch('/api/get_errors', {
-            cache: 'no-store'
-        });
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            z-index: 90;
+            max-width: min(520px, calc(100vw - 36px));
+            transform: translateX(-50%) translateY(18px);
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: #fff;
+            background: rgba(20, 20, 20, 0.9);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
         }
 
-        const data = await response.json();
-        const domains = Array.isArray(data) ? data : [];
-        status.textContent = domains.length ? ('共 ' + domains.length + ' 个域名，15 秒自动刷新') : '暂无失败域名，15 秒自动刷新';
-        list.innerHTML = '';
-
-        domains.forEach(function(domain) {
-            const chip = document.createElement('div');
-            chip.className = 'mdui-chip';
-            chip.style.margin = '4px';
-            chip.innerHTML = '<span class="mdui-chip-title"></span><button class="mdui-btn mdui-btn-icon mdui-ripple" title="删除"><i class="mdui-icon material-icons">close</i></button>';
-            chip.querySelector('.mdui-chip-title').textContent = formatErrorDomain(domain);
-            chip.querySelector('button').addEventListener('click', function() {
-                deleteErrorDomain(domain);
-            });
-            list.appendChild(chip);
-        });
-    } catch (error) {
-        console.error('失败域名加载失败:', error);
-        status.textContent = '失败域名加载失败：' + error.message;
-    }
-}
-
-function formatErrorDomain(domain) {
-    const text = String(domain || '').trim();
-    if (!text) {
-        return '';
-    }
-    return /^https?:\/\//i.test(text) ? text : 'https://' + text;
-}
-
-function getErrorDomainAuthHeaders() {
-    const token = getApiToken();
-    if (!token) {
-        mdui.snackbar({ message: '请先填写 API Token 后再操作失败域名列表' });
-        return null;
-    }
-    return {
-        'Content-Type': 'application/json',
-        'x-auth-token': token
-    };
-}
-
-async function deleteErrorDomain(domain) {
-    const headers = getErrorDomainAuthHeaders();
-    if (!headers) {
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/delete_error', {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({ domain: domain })
-        });
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
-        }
-        const result = await response.json();
-        if (result.code !== 200) {
-            throw new Error(result.msg || '删除失败');
-        }
-        mdui.snackbar({ message: '已删除 ' + formatErrorDomain(domain) });
-        loadErrorDomains();
-    } catch (error) {
-        console.error('删除失败域名失败:', error);
-        mdui.snackbar({ message: '删除失败：' + error.message });
-    }
-}
-
-async function clearErrorDomains() {
-    const headers = getErrorDomainAuthHeaders();
-    if (!headers) {
-        return;
-    }
-
-    if (!window.confirm('确定要清空全部失败域名记录吗？')) {
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/clear_errors', {
-            method: 'POST',
-            headers: headers
-        });
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
-        }
-        const result = await response.json();
-        if (result.code !== 200) {
-            throw new Error(result.msg || '清空失败');
-        }
-        mdui.snackbar({ message: '失败域名记录已清空' });
-        loadErrorDomains();
-    } catch (error) {
-        console.error('清空失败域名失败:', error);
-        mdui.snackbar({ message: '清空失败：' + error.message });
-    }
-}
-
-async function loadDownloadProxyMode() {
-    const status = document.getElementById('downloadProxyModeStatus');
-    const enableBtn = document.getElementById('downloadProxyEnableBtn');
-    const disableBtn = document.getElementById('downloadProxyDisableBtn');
-    if (!status) {
-        return;
-    }
-
-    try {
-        status.textContent = '正在读取...';
-        const response = await fetch('/api/download_proxy_mode', {
-            cache: 'no-store'
-        });
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
-        }
-        const result = await response.json();
-        const enabled = !!(result.data && result.data.enabled);
-        status.textContent = enabled
-            ? '当前状态：已开启代理下载，小程序会优先使用 douyin.hins.top 下载。'
-            : '当前状态：已暂停代理下载，小程序只会使用官方 CDN 地址。';
-        if (enableBtn) enableBtn.disabled = enabled;
-        if (disableBtn) disableBtn.disabled = !enabled;
-    } catch (error) {
-        console.error('下载代理状态读取失败:', error);
-        status.textContent = '下载代理状态读取失败：' + error.message;
-    }
-}
-
-function getDownloadProxyAuthHeaders() {
-    const token = getApiToken();
-    if (!token) {
-        mdui.snackbar({ message: '请先填写 API Token 后再切换下载代理' });
-        return null;
-    }
-    return {
-        'Content-Type': 'application/json',
-        'x-auth-token': token
-    };
-}
-
-async function setDownloadProxyMode(enabled) {
-    const headers = getDownloadProxyAuthHeaders();
-    if (!headers) {
-        return;
-    }
-
-    if (!enabled && !window.confirm('暂停代理后，小程序会直接下载官方 CDN，可能再次触发微信下载域名限制。确定暂停吗？')) {
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/download_proxy_mode', {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({ enabled: enabled })
-        });
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
-        }
-        const result = await response.json();
-        if (result.code !== 200) {
-            throw new Error(result.msg || '切换失败');
-        }
-        mdui.snackbar({ message: enabled ? '已开启代理下载' : '已暂停代理下载' });
-        loadDownloadProxyMode();
-    } catch (error) {
-        console.error('下载代理切换失败:', error);
-        mdui.snackbar({ message: '下载代理切换失败：' + error.message });
-    }
-}
-
-// 新增清空输入框内容的函数
-function clearInput() {
-    document.getElementById("url").value = "";
-}
-
-// 处理下载按钮点击事件
-function handleDownloadClick(button) {
-    try {
-        const downloadDataId = button.getAttribute('data-download-id');
-        if (!downloadDataId) {
-            mdui.snackbar({
-                message: '下载数据ID不存在,请刷新页面重试'
-            });
-            return;
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
 
-        const downloadData = window[downloadDataId];
-        if (!downloadData || !downloadData.images) {
-            mdui.snackbar({
-                message: '下载数据不存在,请刷新页面重试'
-            });
-            return;
-        }
-
-        // 调用批量下载函数
-        downloadAllImages(downloadData.images, downloadData.title);
-
-        // 清理全局变量(可选,如果数据量大可以考虑清理)
-        // delete window[downloadDataId];
-    } catch (error) {
-        console.error('处理下载点击失败:', error);
-        mdui.snackbar({
-            message: '启动下载失败:' + error.message
-        });
-    }
-}
-
-// 批量下载图片函数
-async function downloadAllImages(imagesData, title) {
-    try {
-        // 检查必要的库是否加载
-        if (typeof JSZip === 'undefined') {
-            mdui.snackbar({
-                message: 'JSZip库未加载,请检查网络连接或刷新页面重试',
-                timeout: 5000
-            });
-            return;
-        }
-
-        if (typeof saveAs === 'undefined') {
-            mdui.snackbar({
-                message: 'FileSaver.js库未加载,请检查网络连接或刷新页面重试',
-                timeout: 5000
-            });
-            return;
-        }
-
-        // imagesData 现在直接是图片数组,不需要解码
-        const images = imagesData;
-
-        if (!images || images.length === 0) {
-            mdui.snackbar({
-                message: '没有可下载的图片'
-            });
-            return;
-        }
-
-        // 显示下载进度提示
-        const progressMsg = document.createElement('div');
-        progressMsg.innerHTML = `<div class="loading">正在准备下载 ${images.length} 张图片</div>`;
-        document.body.appendChild(progressMsg);
-
-        // 创建JSZip实例
-        const zip = new JSZip();
-        const imgFolder = zip.folder("images");
-
-        // 下载所有图片
-        const downloadPromises = images.map(async (item, index) => {
-            try {
-                const response = await fetch(item.url, {
-                    headers: {
-                        'Referer': 'https://www.douyin.com/',
-                        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const blob = await response.blob();
-                const fileName = `image_${String(index + 1).padStart(3, '0')}.${getImageExtension(item.url)}`;
-                imgFolder.file(fileName, blob);
-
-                return { success: true, index: index + 1 };
-            } catch (error) {
-                console.error(`下载第 ${index + 1} 张图片失败:`, error);
-                return { success: false, index: index + 1, error: error.message };
+        @media (max-width: 980px) {
+            .page-header {
+                padding: 0 18px;
             }
-        });
 
-        // 等待所有图片下载完成
-        const results = await Promise.all(downloadPromises);
+            .layout {
+                width: min(720px, calc(100vw - 28px));
+                grid-template-columns: 1fr;
+            }
 
-        // 移除进度提示
-        progressMsg.remove();
+            .hero-title {
+                margin-top: 18px;
+                font-size: 42px;
+            }
 
-        // 统计下载结果
-        const successCount = results.filter(r => r.success).length;
-        const failedCount = results.length - successCount;
+            .right-pane {
+                padding-top: 0;
+            }
 
-        if (successCount === 0) {
-            mdui.snackbar({
-                message: '所有图片下载失败，请检查网络连接'
+            .empty-panel {
+                min-height: 320px;
+            }
+        }
+
+        @media (max-width: 620px) {
+            .page-header {
+                height: 64px;
+            }
+
+            .brand span:last-child {
+                display: none;
+            }
+
+            .ghost-link {
+                height: 34px;
+                padding: 0 10px;
+                font-size: 13px;
+            }
+
+            .hero-title {
+                font-size: 36px;
+            }
+
+            .hero-subtitle {
+                font-size: 16px;
+            }
+
+            .button-row,
+            .result-toolbar,
+            .viewer-toolbar {
+                flex-wrap: wrap;
+            }
+
+            .result-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .modal,
+            .viewer {
+                padding: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="page-header">
+        <a class="brand" href="/">
+            <span class="brand-mark">VP</span>
+            <span>Hins 视频解析</span>
+        </a>
+        <div class="header-actions">
+            <button class="ghost-link" type="button" id="openCookieBtn">我的 Cookies</button>
+            <a class="ghost-link" href="/admin">Admin</a>
+        </div>
+    </header>
+
+    <main class="layout">
+        <section class="left-pane">
+            <h1 class="hero-title">在线<span>去水印</span></h1>
+            <p class="hero-subtitle">一键<span>在线解析</span>并<span>下载</span>无水印图片、视频和 Live Photo，支持抖音、快手、小红书、B站等常见平台。</p>
+            <div class="tip-row">
+                <span>!</span>
+                <a href="javascript:void(0)" id="fillDemo">第一次使用可先点这里填入示例链接</a>
+            </div>
+            <div class="platform-row" aria-label="支持平台">
+                <span class="platform-chip">红书</span>
+                <span class="platform-chip">抖音</span>
+                <span class="platform-chip">快手</span>
+                <span class="platform-chip">B站</span>
+                <span class="platform-chip">微博</span>
+                <span class="platform-chip">更多</span>
+            </div>
+
+            <section class="search-panel">
+                <div class="search-tip"><span>!</span><span>粘贴网页链接或分享口令，查看和下载解析内容</span></div>
+                <div class="search-box">
+                    <div class="search-icon">⌕</div>
+                    <input id="url" type="text" placeholder="请输入小红书/抖音/快手/B站分享链接" autocomplete="off">
+                </div>
+                <div id="history" class="history"></div>
+                <div class="button-row">
+                    <button class="btn btn-primary" id="searchBtn" type="button">搜索</button>
+                    <button class="btn btn-secondary" id="clearBtn" type="button">清空</button>
+                </div>
+            </section>
+
+            <footer class="footer">
+                <div class="footer-links">
+                    <a href="javascript:void(0)" id="openCookieFooter">自定义 Cookies</a>
+                    <a href="/admin">后台设置</a>
+                    <a href="https://github.com/hinspath/parse-video-py" target="_blank" rel="noopener">GitHub</a>
+                </div>
+                <p class="runtime" id="runtime"></p>
+                <p>网页版权所有 2026 Hins Video Parser. Ver.20260506</p>
+            </footer>
+        </section>
+
+        <section class="right-pane">
+            <div class="empty-panel" id="emptyPanel">
+                <div>
+                    <div class="empty-icon">↓</div>
+                    <h2>等待解析</h2>
+                    <p>结果会显示在这里：视频、图集、Live Photo、音乐和可选清晰度都会集中展示。</p>
+                </div>
+            </div>
+
+            <section class="result-panel" id="resultPanel">
+                <div class="result-toolbar">
+                    <button class="btn btn-dark" id="downloadAllBtn" type="button">下载全部</button>
+                    <button class="btn btn-line" id="downloadCoverBtn" type="button">下载封面</button>
+                    <button class="btn btn-line" id="downloadMusicBtn" type="button">下载音乐</button>
+                </div>
+                <div class="result-header">
+                    <div class="author-row">
+                        <img class="avatar" id="authorAvatar" alt="">
+                        <div>
+                            <div class="author-name" id="authorName">未知作者</div>
+                            <div class="author-sub">在线去水印</div>
+                        </div>
+                    </div>
+                    <div class="content-title" id="contentTitle">解析结果</div>
+                    <div class="content-desc" id="contentDesc"></div>
+                </div>
+                <div class="quality-row" id="qualityRow"></div>
+                <div class="result-grid" id="resultGrid"></div>
+            </section>
+        </section>
+    </main>
+
+    <div class="loading" id="loading">
+        <div class="loading-card">
+            <div class="spinner"></div>
+            <strong>正在解析</strong>
+            <p>正在请求平台数据，请稍等。</p>
+        </div>
+    </div>
+
+    <div class="modal" id="cookieModal">
+        <div class="modal-panel">
+            <div class="modal-head">
+                <div class="modal-title">我的 Cookies</div>
+                <button class="close-btn" type="button" data-close-modal="cookieModal">×</button>
+            </div>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="cookieDouyin">抖音 Cookie</label>
+                    <textarea id="cookieDouyin" rows="4" placeholder="只保存在当前浏览器，解析抖音时优先使用。"></textarea>
+                </div>
+                <div class="field">
+                    <label for="cookieKuaishou">快手 Cookie</label>
+                    <textarea id="cookieKuaishou" rows="3" placeholder="预留字段，只保存在当前浏览器。"></textarea>
+                </div>
+                <div class="field">
+                    <label for="cookieRedbook">小红书 Cookie</label>
+                    <textarea id="cookieRedbook" rows="3" placeholder="预留字段，只保存在当前浏览器。"></textarea>
+                </div>
+                <div class="button-row">
+                    <button class="btn btn-primary" type="button" id="saveCookieBtn">保存</button>
+                    <button class="btn btn-secondary" type="button" id="resetCookieBtn">重置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="viewer" id="viewer">
+        <div class="viewer-stage" id="viewerStage"></div>
+        <div class="viewer-toolbar">
+            <button class="btn btn-line" type="button" id="prevMediaBtn">上一项</button>
+            <button class="btn btn-line" type="button" id="mediaPageBtn">1/1</button>
+            <button class="btn btn-line" type="button" id="nextMediaBtn">下一项</button>
+            <button class="btn btn-dark" type="button" id="viewerDownloadBtn">下载</button>
+            <button class="btn btn-line" type="button" id="viewerCopyBtn">复制地址</button>
+            <button class="btn btn-secondary" type="button" id="closeViewerBtn">关闭</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const STORE = {
+            history: "hins-parser-history",
+            cookies: "hins-parser-user-cookies"
+        };
+        const demoUrl = "https://v.douyin.com/dRj-CU9n1GQ/";
+        const placeholders = [
+            "抖音示例：https://v.douyin.com/视频号/",
+            "快手示例：https://v.kuaishou.com/视频号",
+            "小红书示例：https://www.xiaohongshu.com/explore/笔记号",
+            "B站示例：https://www.bilibili.com/video/视频号",
+            "链接前后的分享文案可以不用删掉"
+        ];
+
+        let placeholderIndex = 0;
+        let currentData = null;
+        let selectedVideo = null;
+        let mediaItems = [];
+        let activeMediaIndex = 0;
+        let toastTimer = null;
+
+        const $ = (id) => document.getElementById(id);
+
+        function escapeHtml(value) {
+            return String(value || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function showToast(message) {
+            const toast = $("toast");
+            toast.textContent = message;
+            toast.classList.add("show");
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
+        }
+
+        function setLoading(show) {
+            $("loading").style.display = show ? "grid" : "none";
+        }
+
+        function loadJson(key, fallback) {
+            try {
+                return JSON.parse(localStorage.getItem(key)) || fallback;
+            } catch {
+                return fallback;
+            }
+        }
+
+        function saveJson(key, value) {
+            localStorage.setItem(key, JSON.stringify(value));
+        }
+
+        function getUserCookies() {
+            return loadJson(STORE.cookies, {});
+        }
+
+        function getParseHeaders() {
+            const cookies = getUserCookies();
+            const headers = {};
+            if (cookies.douyin) headers["x-douyin-cookie"] = cookies.douyin;
+            if (cookies.kuaishou) headers["x-kuaishou-cookie"] = cookies.kuaishou;
+            if (cookies.redbook) headers["x-redbook-cookie"] = cookies.redbook;
+            return headers;
+        }
+
+        function updatePlaceholder() {
+            $("url").placeholder = placeholders[placeholderIndex % placeholders.length];
+            placeholderIndex += 1;
+        }
+
+        function renderRuntime() {
+            const start = new Date("2026-01-01T00:00:00+08:00").getTime();
+            const diff = Math.max(0, Date.now() - start);
+            const day = Math.floor(diff / 86400000);
+            const hour = Math.floor(diff / 3600000) % 24;
+            const minute = Math.floor(diff / 60000) % 60;
+            const second = Math.floor(diff / 1000) % 60;
+            $("runtime").innerHTML = `已稳定运行：<strong>${day}</strong> 天 <strong>${hour}</strong> 时 <strong>${minute}</strong> 分 <strong>${second}</strong> 秒`;
+        }
+
+        function getHistory() {
+            return loadJson(STORE.history, []);
+        }
+
+        function saveHistory(text) {
+            const trimmed = String(text || "").trim();
+            if (!trimmed) return;
+            const history = [trimmed].concat(getHistory().filter((item) => item !== trimmed)).slice(0, 8);
+            saveJson(STORE.history, history);
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const historyBox = $("history");
+            const history = getHistory();
+            historyBox.innerHTML = "";
+            historyBox.style.display = history.length ? "block" : "none";
+            history.forEach((item, index) => {
+                const row = document.createElement("div");
+                row.className = "history-item";
+                row.innerHTML = `<span class="history-text">${escapeHtml(item)}</span><button class="history-delete" type="button">删除</button>`;
+                row.querySelector(".history-text").addEventListener("click", () => {
+                    $("url").value = item;
+                    parseCurrentUrl();
+                });
+                row.querySelector(".history-delete").addEventListener("click", () => {
+                    const next = getHistory().filter((_, i) => i !== index);
+                    saveJson(STORE.history, next);
+                    renderHistory();
+                });
+                historyBox.appendChild(row);
             });
-            return;
         }
 
-        // 生成ZIP文件
-        const zipBlob = await zip.generateAsync({
-            type: "blob",
-            compression: "DEFLATE",
-            compressionOptions: { level: 6 }
-        });
+        async function parseCurrentUrl() {
+            const url = $("url").value.trim();
+            if (!url) {
+                showToast("请先粘贴分享链接");
+                $("url").focus();
+                return;
+            }
 
-        // 生成文件名
-        const safeTitle = title.replace(/[^\w\s-]/g, '').trim() || 'images';
-        const fileName = `${safeTitle}_${new Date().getTime()}.zip`;
-
-        // 下载ZIP文件
-        saveAs(zipBlob, fileName);
-
-        // 显示下载结果
-        let message = `成功下载 ${successCount} 张图片`;
-        if (failedCount > 0) {
-            message += `，${failedCount} 张失败`;
+            setLoading(true);
+            try {
+                const response = await fetch(`/video/share/url/parse?url=${encodeURIComponent(url)}`, {
+                    headers: getParseHeaders(),
+                    cache: "no-store"
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || `HTTP ${response.status}`);
+                }
+                saveHistory(url);
+                renderResult(payload.data || {});
+                showToast(payload.msg || "解析成功");
+            } catch (error) {
+                showToast(`解析失败：${error.message}`);
+            } finally {
+                setLoading(false);
+            }
         }
-        message += '，已打包为ZIP文件';
 
-        mdui.snackbar({
-            message: message,
-            timeout: 5000
-        });
-
-    } catch (error) {
-        console.error('批量下载失败:', error);
-        mdui.snackbar({
-            message: '批量下载失败：' + error.message,
-            timeout: 5000
-        });
-    }
-}
-
-// 获取图片文件扩展名
-function getImageExtension(url) {
-    try {
-        const urlObj = new URL(url);
-        const pathname = urlObj.pathname.toLowerCase();
-
-        if (pathname.endsWith('.jpg') || pathname.endsWith('.jpeg')) {
-            return 'jpg';
-        } else if (pathname.endsWith('.png')) {
-            return 'png';
-        } else if (pathname.endsWith('.gif')) {
-            return 'gif';
-        } else if (pathname.endsWith('.webp')) {
-            return 'webp';
-        } else {
-            // 默认返回jpg
-            return 'jpg';
+        function getQualities(data) {
+            const list = Array.isArray(data.qualities) ? data.qualities : (Array.isArray(data.video_urls) ? data.video_urls : []);
+            const qualities = list.filter((item) => item && item.url);
+            if (!qualities.length && data.video_url) {
+                qualities.push({
+                    label: "默认",
+                    url: data.video_url,
+                    download_url: data.download_url || "",
+                    width: 0,
+                    height: 0
+                });
+            }
+            return qualities;
         }
-    } catch (error) {
-        return 'jpg';
-    }
-}
 
-// 添加动画样式
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideDown {
-        from { opacity: 0; transform: translate(-50%, -20px); }
-        to { opacity: 1; transform: translate(-50%, 0); }
-    }
+        function previewImageUrl(item) {
+            return item.local_url || item.url || "";
+        }
 
-    @keyframes slideUp {
-        from { opacity: 1; transform: translate(-50%, 0); }
-        to { opacity: 0; transform: translate(-50%, -20px); }
-    }
-`;
-document.head.appendChild(style);
+        function livePreviewUrl(item) {
+            return item.local_live_photo_url || item.live_photo_url || "";
+        }
 
-// 页面加载时应用保存的主题
-window.addEventListener('DOMContentLoaded', function() {
-    setTheme(currentTheme);
+        function imageDownloadUrl(item) {
+            return item.download_url || item.url || "";
+        }
 
-    const tokenInput = document.getElementById('apiToken');
-    if (tokenInput) {
-        tokenInput.value = localStorage.getItem('apiToken') || '';
-        tokenInput.addEventListener('input', saveApiToken);
-    }
+        function liveDownloadUrl(item) {
+            return item.live_photo_download_url || item.live_photo_url || "";
+        }
 
-    loadDownloadProxyMode();
-    loadErrorDomains();
-    setInterval(loadErrorDomains, 15000);
+        function renderResult(data) {
+            currentData = data;
+            mediaItems = [];
+            const author = data.author || {};
+            const qualities = getQualities(data);
+            selectedVideo = qualities[0] || null;
+            const images = Array.isArray(data.images) ? data.images : [];
 
-    // 小屏幕下自动折叠主题选择器
-    if (window.innerWidth <= 600) {
-        document.getElementById('themeSelector').classList.add('collapsed');
-        document.getElementById('toggleIcon').textContent = '▶';
-    }
-});
+            $("emptyPanel").style.display = "none";
+            $("resultPanel").style.display = "block";
+            $("authorAvatar").src = author.avatar || data.cover_url || data.cover || "";
+            $("authorName").textContent = author.name || "未知作者";
+            $("contentTitle").textContent = author.name || data.title || "解析结果";
+            $("contentDesc").textContent = data.title || "暂无标题";
+            $("downloadCoverBtn").style.display = (data.cover_download_url || data.cover_url || data.cover) ? "inline-flex" : "none";
+            $("downloadMusicBtn").style.display = (data.music_download_url || data.music_url) ? "inline-flex" : "none";
+            renderQualityButtons(qualities);
+            renderMediaGrid(data, images);
+        }
 
-// 响应式处理
-window.addEventListener('resize', function() {
-    if (window.innerWidth <= 600) {
-        document.getElementById('themeSelector').classList.add('collapsed');
-        document.getElementById('toggleIcon').textContent = '▶';
-    }
-});
-</script>
+        function renderQualityButtons(qualities) {
+            const row = $("qualityRow");
+            row.innerHTML = "";
+            row.style.display = qualities.length > 1 ? "flex" : "none";
+            qualities.forEach((item, index) => {
+                const button = document.createElement("button");
+                button.className = `quality-btn${index === 0 ? " active" : ""}`;
+                button.type = "button";
+                button.textContent = item.label || item.gear_name || `清晰度 ${index + 1}`;
+                button.addEventListener("click", () => {
+                    selectedVideo = item;
+                    row.querySelectorAll(".quality-btn").forEach((btn) => btn.classList.remove("active"));
+                    button.classList.add("active");
+                    renderMediaGrid(currentData, Array.isArray(currentData.images) ? currentData.images : []);
+                });
+                row.appendChild(button);
+            });
+        }
 
+        function renderMediaGrid(data, images) {
+            const grid = $("resultGrid");
+            grid.innerHTML = "";
+
+            if (selectedVideo && selectedVideo.url) {
+                const card = createMediaCard({
+                    type: "video",
+                    label: selectedVideo.label || "视频",
+                    preview: selectedVideo.url,
+                    poster: data.cover_url || data.cover || "",
+                    download: selectedVideo.download_url || data.download_url || selectedVideo.url
+                });
+                grid.appendChild(card);
+            }
+
+            images.forEach((item, index) => {
+                const liveUrl = livePreviewUrl(item);
+                const card = createMediaCard({
+                    type: liveUrl ? "live" : "image",
+                    label: liveUrl ? "LIVE" : `图片 ${index + 1}`,
+                    preview: liveUrl || previewImageUrl(item),
+                    poster: previewImageUrl(item),
+                    download: liveUrl ? liveDownloadUrl(item) : imageDownloadUrl(item),
+                    imageDownload: imageDownloadUrl(item)
+                });
+                grid.appendChild(card);
+            });
+
+            if (!grid.children.length && (data.cover_url || data.cover)) {
+                const card = createMediaCard({
+                    type: "image",
+                    label: "封面",
+                    preview: data.cover_url || data.cover,
+                    download: data.cover_download_url || data.cover_url || data.cover
+                });
+                grid.appendChild(card);
+            }
+
+            grid.classList.toggle("single", grid.children.length <= 1);
+            if (!grid.children.length) {
+                grid.innerHTML = '<div style="padding: 24px; color: #777;">未解析到可展示内容</div>';
+            }
+        }
+
+        function createMediaCard(item) {
+            const index = mediaItems.push(item) - 1;
+            const card = document.createElement("div");
+            card.className = `media-card ${item.type === "video" ? "video-card" : ""}`;
+            card.innerHTML = `
+                <span class="media-badge">${escapeHtml(item.label)}</span>
+                <button class="media-download" type="button">下载</button>
+            `;
+
+            if (item.type === "video") {
+                const video = document.createElement("video");
+                video.controls = true;
+                video.preload = "metadata";
+                video.src = item.preview;
+                if (item.poster) video.poster = item.poster;
+                card.prepend(video);
+            } else {
+                const image = document.createElement("img");
+                image.alt = item.label;
+                image.src = item.poster || item.preview;
+                card.prepend(image);
+            }
+
+            card.addEventListener("click", () => openViewer(index));
+            card.querySelector(".media-download").addEventListener("click", (event) => {
+                event.stopPropagation();
+                downloadUrl(item.download || item.preview, item.label);
+            });
+            return card;
+        }
+
+        function collectDownloadItems() {
+            if (!currentData) return [];
+            const items = [];
+            const images = Array.isArray(currentData.images) ? currentData.images : [];
+            if (images.length) {
+                images.forEach((item, index) => {
+                    const imageUrl = imageDownloadUrl(item);
+                    if (imageUrl) items.push({ url: imageUrl, name: `image_${index + 1}` });
+                    const liveUrl = liveDownloadUrl(item);
+                    if (liveUrl) items.push({ url: liveUrl, name: `live_${index + 1}` });
+                });
+            } else if (selectedVideo) {
+                items.push({ url: selectedVideo.download_url || currentData.download_url || selectedVideo.url, name: selectedVideo.label || "video" });
+            }
+            if (currentData.music_download_url || currentData.music_url) {
+                items.push({ url: currentData.music_download_url || currentData.music_url, name: "music" });
+            }
+            return items.filter((item) => item.url);
+        }
+
+        async function downloadAll() {
+            const items = collectDownloadItems();
+            if (!items.length) {
+                showToast("没有可下载内容");
+                return;
+            }
+
+            const imageItems = items.filter((item) => /^image_/i.test(item.name));
+            if (imageItems.length >= 2 && window.JSZip && window.saveAs) {
+                await downloadImagesAsZip(imageItems);
+                return;
+            }
+
+            items.forEach((item, index) => {
+                setTimeout(() => downloadUrl(item.url, item.name), index * 240);
+            });
+        }
+
+        async function downloadImagesAsZip(items) {
+            setLoading(true);
+            try {
+                const zip = new JSZip();
+                const folder = zip.folder("images");
+                for (let index = 0; index < items.length; index += 1) {
+                    const response = await fetch(items[index].url);
+                    if (!response.ok) throw new Error(`第 ${index + 1} 张图片下载失败`);
+                    const blob = await response.blob();
+                    folder.file(`${String(index + 1).padStart(3, "0")}.${guessExt(items[index].url)}`, blob);
+                }
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                saveAs(zipBlob, `${safeFileName(currentData.title || "images")}.zip`);
+                showToast("已打包图片");
+            } catch (error) {
+                showToast(`打包失败，改为逐个下载：${error.message}`);
+                items.forEach((item, index) => setTimeout(() => downloadUrl(item.url, item.name), index * 240));
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function guessExt(url) {
+            const clean = String(url || "").split("?")[0].toLowerCase();
+            if (clean.endsWith(".png")) return "png";
+            if (clean.endsWith(".webp")) return "webp";
+            if (clean.endsWith(".gif")) return "gif";
+            return "jpg";
+        }
+
+        function safeFileName(text) {
+            return String(text || "download").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || "download";
+        }
+
+        function downloadUrl(url, name) {
+            if (!url) return;
+            const a = document.createElement("a");
+            a.href = url;
+            a.target = "_blank";
+            a.rel = "noopener";
+            a.download = safeFileName(name || "download");
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        function openViewer(index) {
+            activeMediaIndex = index;
+            renderViewer();
+            $("viewer").style.display = "grid";
+        }
+
+        function closeViewer() {
+            $("viewer").style.display = "none";
+            $("viewerStage").innerHTML = "";
+        }
+
+        function renderViewer() {
+            const item = mediaItems[activeMediaIndex];
+            const stage = $("viewerStage");
+            if (!item) return;
+            stage.innerHTML = "";
+            if (item.type === "image") {
+                const img = document.createElement("img");
+                img.src = item.preview;
+                img.alt = item.label;
+                stage.appendChild(img);
+            } else {
+                const video = document.createElement("video");
+                video.controls = true;
+                video.autoplay = true;
+                video.src = item.preview;
+                if (item.poster) video.poster = item.poster;
+                stage.appendChild(video);
+            }
+            $("mediaPageBtn").textContent = `${activeMediaIndex + 1}/${mediaItems.length}`;
+        }
+
+        function moveViewer(step) {
+            if (!mediaItems.length) return;
+            activeMediaIndex = (activeMediaIndex + step + mediaItems.length) % mediaItems.length;
+            renderViewer();
+        }
+
+        async function copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                showToast("地址已复制");
+            } catch {
+                showToast("复制失败，请手动复制");
+            }
+        }
+
+        function openCookieModal() {
+            const cookies = getUserCookies();
+            $("cookieDouyin").value = cookies.douyin || "";
+            $("cookieKuaishou").value = cookies.kuaishou || "";
+            $("cookieRedbook").value = cookies.redbook || "";
+            $("cookieModal").style.display = "grid";
+        }
+
+        function closeModal(id) {
+            $(id).style.display = "none";
+        }
+
+        function saveUserCookies() {
+            saveJson(STORE.cookies, {
+                douyin: $("cookieDouyin").value.trim(),
+                kuaishou: $("cookieKuaishou").value.trim(),
+                redbook: $("cookieRedbook").value.trim()
+            });
+            closeModal("cookieModal");
+            showToast("已保存到当前浏览器");
+        }
+
+        function resetUserCookies() {
+            localStorage.removeItem(STORE.cookies);
+            $("cookieDouyin").value = "";
+            $("cookieKuaishou").value = "";
+            $("cookieRedbook").value = "";
+            showToast("已清空本机 Cookies");
+        }
+
+        function bindEvents() {
+            $("searchBtn").addEventListener("click", parseCurrentUrl);
+            $("clearBtn").addEventListener("click", () => {
+                $("url").value = "";
+                $("url").focus();
+            });
+            $("url").addEventListener("keydown", (event) => {
+                if (event.key === "Enter") parseCurrentUrl();
+            });
+            $("fillDemo").addEventListener("click", () => {
+                $("url").value = demoUrl;
+                $("url").focus();
+            });
+            $("downloadAllBtn").addEventListener("click", downloadAll);
+            $("downloadCoverBtn").addEventListener("click", () => {
+                if (!currentData) return;
+                downloadUrl(currentData.cover_download_url || currentData.cover_url || currentData.cover, "cover");
+            });
+            $("downloadMusicBtn").addEventListener("click", () => {
+                if (!currentData) return;
+                downloadUrl(currentData.music_download_url || currentData.music_url, "music");
+            });
+            $("openCookieBtn").addEventListener("click", openCookieModal);
+            $("openCookieFooter").addEventListener("click", openCookieModal);
+            $("saveCookieBtn").addEventListener("click", saveUserCookies);
+            $("resetCookieBtn").addEventListener("click", resetUserCookies);
+            document.querySelectorAll("[data-close-modal]").forEach((btn) => {
+                btn.addEventListener("click", () => closeModal(btn.dataset.closeModal));
+            });
+            $("prevMediaBtn").addEventListener("click", () => moveViewer(-1));
+            $("nextMediaBtn").addEventListener("click", () => moveViewer(1));
+            $("closeViewerBtn").addEventListener("click", closeViewer);
+            $("viewerDownloadBtn").addEventListener("click", () => {
+                const item = mediaItems[activeMediaIndex];
+                if (item) downloadUrl(item.download || item.preview, item.label);
+            });
+            $("viewerCopyBtn").addEventListener("click", () => {
+                const item = mediaItems[activeMediaIndex];
+                if (item) copyText(item.preview);
+            });
+        }
+
+        updatePlaceholder();
+        setInterval(updatePlaceholder, 6000);
+        renderRuntime();
+        setInterval(renderRuntime, 1000);
+        renderHistory();
+        bindEvents();
+    </script>
 </body>
 </html>

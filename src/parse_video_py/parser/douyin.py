@@ -4,6 +4,7 @@ import re
 import secrets
 import string
 import subprocess
+from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -17,6 +18,7 @@ except ImportError:  # pragma: no cover - Mode A 会自动降级到 HTML 解析
 from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo, VideoQuality
 
 GLOBAL_DY_COOKIE = os.getenv("DOUYIN_COOKIE", "").strip()
+REQUEST_DY_COOKIE: ContextVar[str] = ContextVar("REQUEST_DY_COOKIE", default="")
 DOUYIN_PC_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -49,6 +51,18 @@ class DouYin(BaseParser):
     def update_cookie(cls, new_cookie: str) -> None:
         global GLOBAL_DY_COOKIE
         GLOBAL_DY_COOKIE = new_cookie.strip()
+
+    @classmethod
+    def set_request_cookie(cls, cookie: str):
+        return REQUEST_DY_COOKIE.set((cookie or "").strip())
+
+    @classmethod
+    def reset_request_cookie(cls, token) -> None:
+        REQUEST_DY_COOKIE.reset(token)
+
+    @staticmethod
+    def _get_active_cookie() -> str:
+        return REQUEST_DY_COOKIE.get().strip() or GLOBAL_DY_COOKIE
 
     def _load_js(self):
         if self.__class__._js_load_attempted:
@@ -189,9 +203,10 @@ if (signature) {
         else:
             raise ValueError(f"Douyin not support this host: {host}")
 
-        if GLOBAL_DY_COOKIE:
+        active_cookie = self._get_active_cookie()
+        if active_cookie:
             try:
-                return await self._parse_with_aweme_detail_api(video_id)
+                return await self._parse_with_aweme_detail_api(video_id, active_cookie)
             except Exception as err:
                 # Cookie / 签名 API 偶发失效时，继续使用作者新版 HTML 兜底逻辑。
                 print(f"[DouYin] Mode A failed, fallback to HTML: {err}")
@@ -341,7 +356,11 @@ if (signature) {
         )
         return video_info
 
-    async def _parse_with_aweme_detail_api(self, video_id: str) -> VideoInfo:
+    async def _parse_with_aweme_detail_api(
+        self,
+        video_id: str,
+        cookie: str,
+    ) -> VideoInfo:
         if not self.js_ctx:
             raise ValueError("signer.js is not available")
 
@@ -365,7 +384,7 @@ if (signature) {
 
         headers = {
             "User-Agent": DOUYIN_PC_UA,
-            "Cookie": GLOBAL_DY_COOKIE,
+            "Cookie": cookie,
             "Referer": "https://www.douyin.com/",
             "Accept": "application/json",
         }

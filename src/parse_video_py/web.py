@@ -66,6 +66,7 @@ DOWNLOAD_PROXY_TTL_SECONDS = int(os.getenv("DOWNLOAD_PROXY_TTL_SECONDS", "1800")
 DOWNLOAD_PROXY_ENABLED_DEFAULT = os.getenv("DOWNLOAD_PROXY_ENABLED", "true")
 AUTH_WHITELIST = {
     "/",
+    "/admin",
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -75,6 +76,9 @@ AUTH_WHITELIST = {
     "/api/download_proxy_mode",
     "/api/get_errors",
     "/api/update_cookie",
+    "/api/delete_error",
+    "/api/clear_errors",
+    "/video/share/url/parse",
 }
 AUTH_WHITELIST_PREFIXES = ("/docs/", "/static/")
 
@@ -86,10 +90,15 @@ class CookieUpdateParams(BaseModel):
 
 class ErrorDomainParams(BaseModel):
     domain: str
+    password: str = ""
 
 
 class DownloadProxyModeParams(BaseModel):
     enabled: bool
+    password: str = ""
+
+
+class AdminPasswordParams(BaseModel):
     password: str = ""
 
 
@@ -103,6 +112,12 @@ def _request_is_authorized(request: Request) -> bool:
         request.headers.get("x-auth-token") in tokens
         or request.headers.get("x-api-key") in tokens
     )
+
+
+def _admin_password_is_valid(password: str) -> bool:
+    if not password:
+        return False
+    return hmac.compare_digest(password, DOUYIN_COOKIE_UPDATE_PASSWORD)
 
 
 def _add_compat_fields(data: dict) -> dict:
@@ -142,6 +157,12 @@ async def _parse_share_url_payload(url: str, request: Request | None = None):
             "msg": "未检测到有效的分享链接",
         }
 
+    request_cookie_token = None
+    if request is not None:
+        request_cookie = (request.headers.get("x-douyin-cookie") or "").strip()
+        if request_cookie:
+            request_cookie_token = DouYin.set_request_cookie(request_cookie)
+
     try:
         video_info = await parse_video_share_url(video_share_url)
         return _success_payload(video_info, request)
@@ -150,6 +171,9 @@ async def _parse_share_url_payload(url: str, request: Request | None = None):
             "code": 500,
             "msg": str(err),
         }
+    finally:
+        if request_cookie_token is not None:
+            DouYin.reset_request_cookie(request_cookie_token)
 
 
 def _read_error_domains() -> list[str]:
@@ -428,6 +452,17 @@ async def read_item(request: Request):
     )
 
 
+@app.get("/admin", response_class=HTMLResponse)
+async def read_admin(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="admin.html",
+        context={
+            "title": "Video Parser Admin",
+        },
+    )
+
+
 @app.post("/api/update_cookie")
 async def update_cookie_api(params: CookieUpdateParams):
     if params.password != DOUYIN_COOKIE_UPDATE_PASSWORD:
@@ -465,7 +500,7 @@ async def get_download_proxy_mode_api():
 
 @app.post("/api/download_proxy_mode")
 async def update_download_proxy_mode_api(request: Request, params: DownloadProxyModeParams):
-    if not _request_is_authorized(request) and params.password != DOUYIN_COOKIE_UPDATE_PASSWORD:
+    if not _request_is_authorized(request) and not _admin_password_is_valid(params.password):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "auth failed"},
@@ -603,7 +638,13 @@ async def legacy_report_error_api(request: Request):
 
 
 @app.post("/api/delete_error")
-async def legacy_delete_error_api(params: ErrorDomainParams):
+async def legacy_delete_error_api(request: Request, params: ErrorDomainParams):
+    if not _request_is_authorized(request) and not _admin_password_is_valid(params.password):
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "auth failed"},
+        )
+
     domain = _normalize_domain(params.domain)
     if not domain:
         return {"code": 400, "msg": "missing domain"}
@@ -615,7 +656,13 @@ async def legacy_delete_error_api(params: ErrorDomainParams):
 
 
 @app.post("/api/clear_errors")
-async def legacy_clear_errors_api():
+async def legacy_clear_errors_api(request: Request, params: AdminPasswordParams):
+    if not _request_is_authorized(request) and not _admin_password_is_valid(params.password):
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "auth failed"},
+        )
+
     _write_error_domains([])
     return {"code": 200, "msg": "ok", "data": []}
 
