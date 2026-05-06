@@ -7,7 +7,7 @@ import json
 import os
 import time
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 from fastapi import FastAPI, Request
@@ -82,6 +82,7 @@ AUTH_WHITELIST = {
     "/api/download",
     "/api/download_proxy_mode",
     "/api/get_errors",
+    "/api/resolve_redirect",
     "/api/update_cookie",
     "/api/platform_cookies",
     "/api/platform_cookies/status",
@@ -473,6 +474,54 @@ def _get_upstream_total_size(upstream: httpx.Response) -> int:
         return 0
 
 
+def _guess_download_extension(url: str, media_type: str) -> str:
+    parsed = urlparse(url)
+    path = unquote(parsed.path or "").lower()
+    known_exts = (
+        ".mp4",
+        ".mov",
+        ".m4v",
+        ".webm",
+        ".mp3",
+        ".m4a",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+    )
+    for ext in known_exts:
+        if path.endswith(ext):
+            return ext.lstrip(".")
+
+    content_type = (media_type or "").split(";", 1)[0].lower()
+    if content_type == "video/mp4":
+        return "mp4"
+    if content_type == "video/quicktime":
+        return "mov"
+    if content_type == "video/webm":
+        return "webm"
+    if content_type in {"audio/mpeg", "audio/mp3"}:
+        return "mp3"
+    if content_type in {"audio/mp4", "audio/x-m4a"}:
+        return "m4a"
+    if content_type == "image/png":
+        return "png"
+    if content_type == "image/webp":
+        return "webp"
+    if content_type == "image/gif":
+        return "gif"
+    if content_type in {"image/jpeg", "image/jpg"}:
+        return "jpg"
+    if content_type.startswith("video/"):
+        return "mp4"
+    if content_type.startswith("audio/"):
+        return "mp3"
+    if content_type.startswith("image/"):
+        return "jpg"
+    return "bin"
+
+
 def _add_download_proxy_fields(data: dict, request: Request | None) -> None:
     data["download_proxy_enabled"] = _read_download_proxy_enabled()
     if not data["download_proxy_enabled"]:
@@ -716,12 +765,15 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
     ):
         if upstream.headers.get(header):
             response_headers[header] = upstream.headers[header]
+    media_type = upstream.headers.get("content-type") or "application/octet-stream"
+    extension = _guess_download_extension(target_url, media_type)
+    filename = f"download.{extension}"
     if total_size:
         response_headers["content-length"] = str(total_size)
-    response_headers["Content-Disposition"] = 'attachment; filename="download"'
+    response_headers["Content-Disposition"] = (
+        f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}'
+    )
     response_headers["Accept-Ranges"] = "none"
-
-    media_type = upstream.headers.get("content-type") or "application/octet-stream"
     status_code = 200 if upstream.status_code == 206 else upstream.status_code
 
     async def stream_body():

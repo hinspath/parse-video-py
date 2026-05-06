@@ -2,6 +2,15 @@
 
 所有重要变更均会记录在此文件中。
 
+## [v1.1.20] - 2026-05-06
+
+### 修复
+
+- **Web 预览视频无法播放**：前端预览视频时先通过 `/api/resolve_redirect` 解析抖音播放地址到最终 CDN，再写入 `<video>`，避免浏览器直接播放 `www.douyin.com/aweme/v1/play` 失败。
+- **代理下载文件无后缀**：`/api/download` 根据上游 `Content-Type` 或原始路径返回 `download.mp4`、`download.jpg` 等带扩展名的 `Content-Disposition`，前端触发下载时也会补齐扩展名。
+
+---
+
 ## [v1.1.19] - 2026-05-06
 
 ### 修复

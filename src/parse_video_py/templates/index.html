@@ -1041,6 +1041,24 @@
             return qualities;
         }
 
+        function shouldResolvePreviewUrl(url) {
+            return /douyin\.com\/aweme\/v1\/play|iesdouyin\.com\/share\/video/i.test(String(url || ""));
+        }
+
+        async function resolvePreviewUrl(url) {
+            if (!url || !shouldResolvePreviewUrl(url)) return url || "";
+            try {
+                const response = await fetch(`/api/resolve_redirect?url=${encodeURIComponent(url)}`, { cache: "no-store" });
+                const payload = await response.json();
+                if (response.ok && payload && payload.url) {
+                    return payload.url;
+                }
+            } catch {
+                return url;
+            }
+            return url;
+        }
+
         function previewImageUrl(item) {
             return item.local_url || item.url || "";
         }
@@ -1104,7 +1122,7 @@
                 const card = createMediaCard({
                     type: "video",
                     label: selectedVideo.label || "视频",
-                    preview: selectedVideo.url,
+                    preview: selectedVideo.preview_url || selectedVideo.resolved_url || selectedVideo.url,
                     poster: data.cover_url || data.cover || "",
                     download: selectedVideo.download_url || data.download_url || selectedVideo.url
                 });
@@ -1149,24 +1167,36 @@
                 <button class="media-download" type="button">下载</button>
             `;
 
+            let mediaElement = null;
             if (item.type === "video") {
                 const video = document.createElement("video");
                 video.controls = true;
                 video.preload = "metadata";
                 video.src = item.preview;
                 if (item.poster) video.poster = item.poster;
+                mediaElement = video;
                 card.prepend(video);
             } else {
                 const image = document.createElement("img");
                 image.alt = item.label;
                 image.src = item.poster || item.preview;
+                mediaElement = image;
                 card.prepend(image);
             }
 
             card.addEventListener("click", () => openViewer(index));
             card.querySelector(".media-download").addEventListener("click", (event) => {
                 event.stopPropagation();
-                downloadUrl(item.download || item.preview, item.label);
+                downloadUrl(item.download || item.preview, item.label, item.type);
+            });
+            resolvePreviewUrl(item.preview).then((resolvedUrl) => {
+                if (!resolvedUrl || resolvedUrl === item.preview) return;
+                item.resolvedPreview = resolvedUrl;
+                item.preview = resolvedUrl;
+                if (item.type === "video" && mediaElement) {
+                    mediaElement.src = resolvedUrl;
+                    mediaElement.load();
+                }
             });
             return card;
         }
@@ -1178,15 +1208,15 @@
             if (images.length) {
                 images.forEach((item, index) => {
                     const imageUrl = imageDownloadUrl(item);
-                    if (imageUrl) items.push({ url: imageUrl, name: `image_${index + 1}` });
+                    if (imageUrl) items.push({ url: imageUrl, name: `image_${index + 1}`, type: "image" });
                     const liveUrl = liveDownloadUrl(item);
-                    if (liveUrl) items.push({ url: liveUrl, name: `live_${index + 1}` });
+                    if (liveUrl) items.push({ url: liveUrl, name: `live_${index + 1}`, type: "live" });
                 });
             } else if (selectedVideo) {
-                items.push({ url: selectedVideo.download_url || currentData.download_url || selectedVideo.url, name: selectedVideo.label || "video" });
+                items.push({ url: selectedVideo.download_url || currentData.download_url || selectedVideo.url, name: selectedVideo.label || "video", type: "video" });
             }
             if (currentData.music_download_url || currentData.music_url) {
-                items.push({ url: currentData.music_download_url || currentData.music_url, name: "music" });
+                items.push({ url: currentData.music_download_url || currentData.music_url, name: "music", type: "music" });
             }
             return items.filter((item) => item.url);
         }
@@ -1205,7 +1235,7 @@
             }
 
             items.forEach((item, index) => {
-                setTimeout(() => downloadUrl(item.url, item.name), index * 240);
+                setTimeout(() => downloadUrl(item.url, item.name, item.type), index * 240);
             });
         }
 
@@ -1218,38 +1248,49 @@
                     const response = await fetch(items[index].url);
                     if (!response.ok) throw new Error(`第 ${index + 1} 张图片下载失败`);
                     const blob = await response.blob();
-                    folder.file(`${String(index + 1).padStart(3, "0")}.${guessExt(items[index].url)}`, blob);
+                    folder.file(`${String(index + 1).padStart(3, "0")}.${guessExt(items[index].url, items[index].type)}`, blob);
                 }
                 const zipBlob = await zip.generateAsync({ type: "blob" });
                 saveAs(zipBlob, `${safeFileName(currentData.title || "images")}.zip`);
                 showToast("已打包图片");
             } catch (error) {
                 showToast(`打包失败，改为逐个下载：${error.message}`);
-                items.forEach((item, index) => setTimeout(() => downloadUrl(item.url, item.name), index * 240));
+                items.forEach((item, index) => setTimeout(() => downloadUrl(item.url, item.name, item.type), index * 240));
             } finally {
                 setLoading(false);
             }
         }
 
-        function guessExt(url) {
+        function guessExt(url, type = "") {
             const clean = String(url || "").split("?")[0].toLowerCase();
+            if (clean.endsWith(".mp4") || type === "video" || type === "live") return "mp4";
+            if (clean.endsWith(".mov")) return "mov";
+            if (clean.endsWith(".webm")) return "webm";
+            if (clean.endsWith(".mp3") || type === "music") return "mp3";
+            if (clean.endsWith(".m4a")) return "m4a";
             if (clean.endsWith(".png")) return "png";
             if (clean.endsWith(".webp")) return "webp";
             if (clean.endsWith(".gif")) return "gif";
             return "jpg";
         }
 
+        function ensureFileExtension(name, url, type = "") {
+            const baseName = safeFileName(name || "download");
+            if (/\.[a-z0-9]{2,5}$/i.test(baseName)) return baseName;
+            return `${baseName}.${guessExt(url, type)}`;
+        }
+
         function safeFileName(text) {
             return String(text || "download").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || "download";
         }
 
-        function downloadUrl(url, name) {
+        function downloadUrl(url, name, type = "") {
             if (!url) return;
             const a = document.createElement("a");
             a.href = url;
             a.target = "_blank";
             a.rel = "noopener";
-            a.download = safeFileName(name || "download");
+            a.download = ensureFileExtension(name, url, type);
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -1283,6 +1324,14 @@
                 video.src = item.preview;
                 if (item.poster) video.poster = item.poster;
                 stage.appendChild(video);
+                resolvePreviewUrl(item.preview).then((resolvedUrl) => {
+                    if (!resolvedUrl || resolvedUrl === item.preview) return;
+                    item.resolvedPreview = resolvedUrl;
+                    item.preview = resolvedUrl;
+                    video.src = resolvedUrl;
+                    video.load();
+                    video.play().catch(() => {});
+                });
             }
             $("mediaPageBtn").textContent = `${activeMediaIndex + 1}/${mediaItems.length}`;
         }
@@ -1354,11 +1403,11 @@
             $("downloadAllBtn").addEventListener("click", downloadAll);
             $("downloadCoverBtn").addEventListener("click", () => {
                 if (!currentData) return;
-                downloadUrl(currentData.cover_download_url || currentData.cover_url || currentData.cover, "cover");
+                downloadUrl(currentData.cover_download_url || currentData.cover_url || currentData.cover, "cover", "image");
             });
             $("downloadMusicBtn").addEventListener("click", () => {
                 if (!currentData) return;
-                downloadUrl(currentData.music_download_url || currentData.music_url, "music");
+                downloadUrl(currentData.music_download_url || currentData.music_url, "music", "music");
             });
             $("openCookieBtn").addEventListener("click", openCookieModal);
             $("openCookieFooter").addEventListener("click", openCookieModal);
@@ -1372,7 +1421,7 @@
             $("closeViewerBtn").addEventListener("click", closeViewer);
             $("viewerDownloadBtn").addEventListener("click", () => {
                 const item = mediaItems[activeMediaIndex];
-                if (item) downloadUrl(item.download || item.preview, item.label);
+                if (item) downloadUrl(item.download || item.preview, item.label, item.type);
             });
             $("viewerCopyBtn").addEventListener("click", () => {
                 const item = mediaItems[activeMediaIndex];
