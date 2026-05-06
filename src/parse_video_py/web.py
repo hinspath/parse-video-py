@@ -54,9 +54,16 @@ DOUYIN_COOKIE_FILE = Path(
         str(Path.cwd() / ".runtime" / "douyin_cookie.txt"),
     )
 )
+DOWNLOAD_PROXY_MODE_FILE = Path(
+    os.getenv(
+        "DOWNLOAD_PROXY_MODE_FILE",
+        str(Path.cwd() / ".runtime" / "download_proxy_mode.json"),
+    )
+)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DOWNLOAD_PROXY_SECRET = os.getenv("DOWNLOAD_PROXY_SECRET", API_SECRET_TOKEN)
 DOWNLOAD_PROXY_TTL_SECONDS = int(os.getenv("DOWNLOAD_PROXY_TTL_SECONDS", "1800"))
+DOWNLOAD_PROXY_ENABLED_DEFAULT = os.getenv("DOWNLOAD_PROXY_ENABLED", "true")
 AUTH_WHITELIST = {
     "/",
     "/docs",
@@ -65,6 +72,7 @@ AUTH_WHITELIST = {
     "/favicon.ico",
     "/favicon.png",
     "/api/download",
+    "/api/download_proxy_mode",
     "/api/get_errors",
     "/api/update_cookie",
 }
@@ -78,6 +86,11 @@ class CookieUpdateParams(BaseModel):
 
 class ErrorDomainParams(BaseModel):
     domain: str
+
+
+class DownloadProxyModeParams(BaseModel):
+    enabled: bool
+    password: str = ""
 
 
 def _request_is_authorized(request: Request) -> bool:
@@ -189,6 +202,46 @@ def _write_persisted_douyin_cookie(cookie: str) -> None:
         pass
 
 
+def _parse_bool(value: str, default: bool = True) -> bool:
+    if value is None:
+        return default
+
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "enable", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "off", "disable", "disabled"}:
+        return False
+    return default
+
+
+def _read_download_proxy_enabled() -> bool:
+    try:
+        if DOWNLOAD_PROXY_MODE_FILE.exists():
+            raw = json.loads(DOWNLOAD_PROXY_MODE_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and "enabled" in raw:
+                return bool(raw["enabled"])
+    except Exception as err:
+        print(f"[DownloadProxy] read mode failed: {err}")
+
+    return _parse_bool(DOWNLOAD_PROXY_ENABLED_DEFAULT, True)
+
+
+def _write_download_proxy_enabled(enabled: bool) -> None:
+    DOWNLOAD_PROXY_MODE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DOWNLOAD_PROXY_MODE_FILE.write_text(
+        json.dumps(
+            {"enabled": bool(enabled), "updated_at": int(time.time())},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    try:
+        os.chmod(DOWNLOAD_PROXY_MODE_FILE, 0o600)
+    except Exception:
+        pass
+
+
 def _bootstrap_persisted_douyin_cookie() -> None:
     cookie = _read_persisted_douyin_cookie()
     if cookie:
@@ -270,6 +323,10 @@ def _verify_download_proxy_params(encoded_url: str, expires: int, signature: str
 
 
 def _add_download_proxy_fields(data: dict, request: Request | None) -> None:
+    data["download_proxy_enabled"] = _read_download_proxy_enabled()
+    if not data["download_proxy_enabled"]:
+        return
+
     if request is None:
         return
 
@@ -374,6 +431,31 @@ async def update_cookie_api(params: CookieUpdateParams):
     return {"code": 200, "msg": "Cookie 更新成功，已保存，重启后仍生效"}
 
 
+@app.get("/api/download_proxy_mode")
+async def get_download_proxy_mode_api():
+    return {
+        "code": 200,
+        "msg": "ok",
+        "data": {"enabled": _read_download_proxy_enabled()},
+    }
+
+
+@app.post("/api/download_proxy_mode")
+async def update_download_proxy_mode_api(request: Request, params: DownloadProxyModeParams):
+    if not _request_is_authorized(request) and params.password != DOUYIN_COOKIE_UPDATE_PASSWORD:
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "auth failed"},
+        )
+
+    _write_download_proxy_enabled(params.enabled)
+    return {
+        "code": 200,
+        "msg": "download proxy mode updated",
+        "data": {"enabled": params.enabled},
+    }
+
+
 @app.get("/video/share/url/parse")
 async def share_url_parse(request: Request, url: str):
     return await _parse_share_url_payload(url, request)
@@ -394,6 +476,12 @@ async def legacy_resolve_redirect_api(url: str):
 
 @app.get("/api/download")
 async def proxy_download_api(request: Request, u: str, e: int, s: str):
+    if not _read_download_proxy_enabled():
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "download proxy disabled"},
+        )
+
     try:
         target_url = _verify_download_proxy_params(u, e, s)
     except Exception as err:

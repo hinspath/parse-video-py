@@ -2787,6 +2787,17 @@
         </div>
         <hr/>
         <div class="mdui-card-content mdui-typo">
+            <h4>下载代理开关</h4>
+            <p id="downloadProxyModeStatus" style="font-size: 14px; opacity: 0.7;">正在读取...</p>
+            <button id="downloadProxyEnableBtn" class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-green mdui-m-r-1" onclick="setDownloadProxyMode(true)">
+                开启代理下载
+            </button>
+            <button id="downloadProxyDisableBtn" class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-orange" onclick="setDownloadProxyMode(false)">
+                暂停代理，只走官方 CDN
+            </button>
+        </div>
+        <hr/>
+        <div class="mdui-card-content mdui-typo">
             <h4>失败域名记录</h4>
             <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-red mdui-m-b-1" onclick="clearErrorDomains()">
                 <i class="mdui-icon material-icons">delete_sweep</i> 一键清除
@@ -2939,7 +2950,7 @@ function setValue() {
         });
 
         let successHtml = '<h4>' + jsonObj.data.title + ' </h4>';
-        successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + jsonObj.data.cover_url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载封面</span></a>';
+        successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (jsonObj.data.cover_download_url || jsonObj.data.cover_url) + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载封面</span></a>';
 
         // 如果video_url不为空, 则显示下载视频按钮
         const videoQualities = getVideoQualityList(jsonObj.data);
@@ -2948,17 +2959,17 @@ function setValue() {
             successHtml += '<h4 style="margin-bottom: 0.5em;">视频清晰度</h4>';
             videoQualities.forEach(function(item, index) {
                 const label = escapeHtml(item.label || item.gear_name || ('清晰度 ' + (index + 1)));
-                successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + item.url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
+                successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (item.download_url || item.url) + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
             });
             successHtml += '</div>';
         } else if (jsonObj.data.video_url != "") {
             const label = videoQualities.length === 1 ? escapeHtml(videoQualities[0].label || '视频') : '视频';
-            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + jsonObj.data.video_url + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
+            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (jsonObj.data.download_url || jsonObj.data.video_url) + '" target="_blank" download="video" referrerpolicy="no-referrer"><span>下载 ' + label + '</span></a>';
         }
 
         // 如果music_url不为空, 则显示下载音频按钮
         if (jsonObj.data.music_url && jsonObj.data.music_url != "") {
-            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + jsonObj.data.music_url + '" target="_blank" download="audio" referrerpolicy="no-referrer"><span>下载音频</span></a>';
+            successHtml += '<a class="mdui-btn mdui-btn-raised" href="' + (jsonObj.data.music_download_url || jsonObj.data.music_url) + '" target="_blank" download="audio" referrerpolicy="no-referrer"><span>下载音频</span></a>';
         }
 
         // 如果 jsonObj.data.images 是数组， 并且长度大于0, 则img展示图片
@@ -2985,7 +2996,7 @@ function setValue() {
                 // 如果 item.live_photo_url 不为空， 显示下载按钮
                 const livePhotoUrl = getLivePhotoUrl(item);
                 if (livePhotoUrl) {
-                    successHtml += '<a class="mdui-btn mdui-btn-raised mdui-color-pink-accent" href="' + livePhotoUrl + '" target="_blank" download="video" referrerpolicy="no-referrer" style="text-transform: none; margin-top: 0.5em;"><span>下载实况视频</span></a>';
+                    successHtml += '<a class="mdui-btn mdui-btn-raised mdui-color-pink-accent" href="' + (item.live_photo_download_url || livePhotoUrl) + '" target="_blank" download="video" referrerpolicy="no-referrer" style="text-transform: none; margin-top: 0.5em;"><span>下载实况视频</span></a>';
                 }
 
                 successHtml += '</div>';
@@ -3146,6 +3157,78 @@ async function clearErrorDomains() {
     } catch (error) {
         console.error('清空失败域名失败:', error);
         mdui.snackbar({ message: '清空失败：' + error.message });
+    }
+}
+
+async function loadDownloadProxyMode() {
+    const status = document.getElementById('downloadProxyModeStatus');
+    const enableBtn = document.getElementById('downloadProxyEnableBtn');
+    const disableBtn = document.getElementById('downloadProxyDisableBtn');
+    if (!status) {
+        return;
+    }
+
+    try {
+        status.textContent = '正在读取...';
+        const response = await fetch('/api/download_proxy_mode', {
+            cache: 'no-store'
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const result = await response.json();
+        const enabled = !!(result.data && result.data.enabled);
+        status.textContent = enabled
+            ? '当前状态：已开启代理下载，小程序会优先使用 douyin.hins.top 下载。'
+            : '当前状态：已暂停代理下载，小程序只会使用官方 CDN 地址。';
+        if (enableBtn) enableBtn.disabled = enabled;
+        if (disableBtn) disableBtn.disabled = !enabled;
+    } catch (error) {
+        console.error('下载代理状态读取失败:', error);
+        status.textContent = '下载代理状态读取失败：' + error.message;
+    }
+}
+
+function getDownloadProxyAuthHeaders() {
+    const token = getApiToken();
+    if (!token) {
+        mdui.snackbar({ message: '请先填写 API Token 后再切换下载代理' });
+        return null;
+    }
+    return {
+        'Content-Type': 'application/json',
+        'x-auth-token': token
+    };
+}
+
+async function setDownloadProxyMode(enabled) {
+    const headers = getDownloadProxyAuthHeaders();
+    if (!headers) {
+        return;
+    }
+
+    if (!enabled && !window.confirm('暂停代理后，小程序会直接下载官方 CDN，可能再次触发微信下载域名限制。确定暂停吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/download_proxy_mode', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({ enabled: enabled })
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const result = await response.json();
+        if (result.code !== 200) {
+            throw new Error(result.msg || '切换失败');
+        }
+        mdui.snackbar({ message: enabled ? '已开启代理下载' : '已暂停代理下载' });
+        loadDownloadProxyMode();
+    } catch (error) {
+        console.error('下载代理切换失败:', error);
+        mdui.snackbar({ message: '下载代理切换失败：' + error.message });
     }
 }
 
@@ -3350,6 +3433,7 @@ window.addEventListener('DOMContentLoaded', function() {
         tokenInput.addEventListener('input', saveApiToken);
     }
 
+    loadDownloadProxyMode();
     loadErrorDomains();
     setInterval(loadErrorDomains, 15000);
 

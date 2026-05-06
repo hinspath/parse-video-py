@@ -125,6 +125,10 @@ export PUBLIC_BASE_URL='https://douyin.hins.top'
 # 下载代理签名密钥；生产环境请改成随机长密码
 export DOWNLOAD_PROXY_SECRET='请改成一串随机长密码'
 
+# 可选：代理下载签名有效期，以及后台开关状态持久化文件。
+export DOWNLOAD_PROXY_TTL_SECONDS='1800'
+export DOWNLOAD_PROXY_MODE_FILE='/var/www/douyin/.runtime/download_proxy_mode.json'
+
 # 页面 / API 更新抖音 Cookie 时使用的管理员密码；不设置时使用旧部署默认值
 export DOUYIN_COOKIE_UPDATE_PASSWORD='WhatFuck.1'
 
@@ -146,9 +150,9 @@ uvicorn parse_video_py.web:app --reload
 ## Docker运行
 ### 构建当前仓库镜像
 ```bash
-git clone --branch v1.1.11 --depth 1 https://github.com/hinspath/parse-video-py.git
+git clone --branch v1.1.12 --depth 1 https://github.com/hinspath/parse-video-py.git
 cd parse-video-py
-docker build -t parse-video-py:v1.1.11 .
+docker build -t parse-video-py:v1.1.12 .
 ```
 
 ### 运行 docker 容器, 端口 8000
@@ -165,9 +169,10 @@ docker run -d \
   -e PUBLIC_BASE_URL='https://douyin.hins.top' \
   -e DOWNLOAD_PROXY_SECRET='请改成一串随机长密码' \
   -e DOWNLOAD_PROXY_TTL_SECONDS='1800' \
+  -e DOWNLOAD_PROXY_MODE_FILE='/app/.runtime/download_proxy_mode.json' \
   -v "$(pwd)/.runtime:/app/.runtime" \
   -v "$(pwd)/public/uploads:/app/public/uploads" \
-  parse-video-py:v1.1.11
+  parse-video-py:v1.1.12
 ```
 
 # 生产部署
@@ -184,11 +189,36 @@ docker run -d \
 | `/var/www/douyin/src/parse_video_py/web.py` | Web API 主入口 |
 | `/var/www/douyin/src/parse_video_py/templates/index.html` | 前端页面 |
 | `/var/www/douyin/.runtime/douyin_cookie.txt` | 页面更新后的抖音 Cookie 持久化文件，重启后自动读取 |
+| `/var/www/douyin/.runtime/download_proxy_mode.json` | 后台“下载代理开关”状态文件，关闭后小程序只走官方 CDN |
 | `/var/www/douyin/public/uploads/error_domains.json` | 小程序下载失败域名记录文件 |
 | `/etc/nginx/sites-enabled/douyin` | nginx 站点配置 |
 | `dy-python-api` | PM2 中 Python API 服务名 |
 
 `.runtime/douyin_cookie.txt` 是敏感文件，不要提交到 GitHub，也不要放到 `public/uploads` 目录。
+
+## 下载代理开关
+
+生产页面已经内置“下载代理开关”。打开 `https://douyin.hins.top`，填写 `API Token` 后，可以一键开启代理下载，或暂停代理只走官方 CDN。暂停后：
+
+- 新解析结果不再返回 `download_url`、`cover_download_url`、`images.[index].download_url` 等自有域名代理字段。
+- 小程序会自动回退到 `video_url` / `url` / `live_photo_url` 官方 CDN 地址。
+- 已经签发出去的 `/api/download` 链接会立即返回 `download proxy disabled`，避免继续消耗代理流量。
+
+命令行也可以切换：
+
+```bash
+# 开启代理下载
+curl -X POST https://douyin.hins.top/api/download_proxy_mode \
+  -H "Content-Type: application/json" \
+  -H "x-auth-token: 你的API_TOKEN" \
+  -d '{"enabled":true}'
+
+# 暂停代理，只走官方 CDN
+curl -X POST https://douyin.hins.top/api/download_proxy_mode \
+  -H "Content-Type: application/json" \
+  -H "x-auth-token: 你的API_TOKEN" \
+  -d '{"enabled":false}'
+```
 
 ## 新服务器首次部署
 
@@ -203,7 +233,7 @@ npm install -g pm2
 
 ```bash
 rm -rf /var/www/douyin
-git clone --branch v1.1.11 https://github.com/hinspath/parse-video-py.git /var/www/douyin
+git clone --branch v1.1.12 https://github.com/hinspath/parse-video-py.git /var/www/douyin
 cd /var/www/douyin
 ```
 
@@ -243,6 +273,7 @@ export ERROR_REPORT_FILE='/var/www/douyin/public/uploads/error_domains.json'
 export PUBLIC_BASE_URL='https://douyin.hins.top'
 export DOWNLOAD_PROXY_SECRET='请改成一串随机长密码'
 export DOWNLOAD_PROXY_TTL_SECONDS='1800'
+export DOWNLOAD_PROXY_MODE_FILE='/var/www/douyin/.runtime/download_proxy_mode.json'
 
 cd /var/www/douyin
 source venv/bin/activate
@@ -421,7 +452,7 @@ cd /var/www/douyin
 
 cp -a run.sh run.sh.bak.$(date +%F-%H%M%S)
 git fetch --tags origin
-git checkout -f tags/v1.1.11
+git checkout -f tags/v1.1.12
 
 source venv/bin/activate
 pip install -r requirements.txt
@@ -462,6 +493,7 @@ curl -H 'x-auth-token: wxd8f9c2a1b3_my_secret_pwd' 'http://127.0.0.1:8000/video/
 | author.avatar | 视频作者头像 |
 | title | 视频标题 |
 | video_url | 视频无水印链接 |
+| download_proxy_enabled | 当前是否开启自有域名下载代理；关闭后不返回各类 `download_url` |
 | download_url | 通过自有域名 `/api/download` 代理下载的视频链接，小程序优先使用这个字段 |
 | video_urls | 视频清晰度列表，抖音普通视频可能返回多个；同一分辨率只保留码率最高的一条 |
 | video_urls.[index].label | 清晰度展示文案，例如 `1080P · 668kbps` |

@@ -88,7 +88,13 @@ def test_update_cookie_api_updates_global_cookie(monkeypatch, tmp_path):
         douyin.GLOBAL_DY_COOKIE = original_cookie
 
 
-def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch):
+def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        web,
+        "DOWNLOAD_PROXY_MODE_FILE",
+        tmp_path / "download_proxy_mode.json",
+    )
+
     async def fake_parse_video_share_url(url):
         assert url == "https://v.douyin.com/test/"
         return VideoInfo(
@@ -126,6 +132,7 @@ def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch):
     assert payload["data"]["video_url"] == "https://video.example/a.mp4"
     assert payload["data"]["url"] == "https://video.example/a.mp4"
     assert payload["data"]["cover"] == "https://image.example/cover.jpg"
+    assert payload["data"]["download_proxy_enabled"] is True
     assert payload["data"]["download_url"].startswith(
         "http://testserver/api/download?"
     )
@@ -195,7 +202,12 @@ def test_legacy_resolve_redirect_uses_miniprogram_api_key(monkeypatch):
     assert response.json() == {"code": 200, "url": "https://cdn.example/a.mp4?x=1"}
 
 
-def test_download_proxy_rejects_bad_signature():
+def test_download_proxy_rejects_bad_signature(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        web,
+        "DOWNLOAD_PROXY_MODE_FILE",
+        tmp_path / "download_proxy_mode.json",
+    )
     encoded_url = web._encode_download_url("https://video.example/a.mp4")
 
     response = client.get(
@@ -205,6 +217,56 @@ def test_download_proxy_rejects_bad_signature():
 
     assert response.status_code == 403
     assert response.json()["msg"] == "invalid download signature"
+
+
+def test_download_proxy_mode_can_disable_proxy_fields(monkeypatch, tmp_path):
+    mode_file = tmp_path / "download_proxy_mode.json"
+    monkeypatch.setattr(web, "DOWNLOAD_PROXY_MODE_FILE", mode_file)
+
+    async def fake_parse_video_share_url(url):
+        return VideoInfo(
+            video_url="https://video.example/a.mp4",
+            cover_url="https://image.example/cover.jpg",
+            title="demo",
+            images=[ImgInfo(url="https://image.example/1.jpg")],
+        )
+
+    monkeypatch.setattr(web, "parse_video_share_url", fake_parse_video_share_url)
+
+    update_response = client.post(
+        "/api/download_proxy_mode",
+        json={"enabled": False},
+        headers=AUTH_HEADERS,
+    )
+    parse_response = client.get(
+        "/api/parse",
+        params={"url": "https://v.douyin.com/test/"},
+        headers=MINIPROGRAM_HEADERS,
+    )
+
+    assert update_response.status_code == 200
+    payload = parse_response.json()["data"]
+    assert payload["download_proxy_enabled"] is False
+    assert "download_url" not in payload
+    assert "cover_download_url" not in payload
+    assert "download_url" not in payload["images"][0]
+
+
+def test_download_proxy_endpoint_rejects_when_mode_disabled(monkeypatch, tmp_path):
+    mode_file = tmp_path / "download_proxy_mode.json"
+    monkeypatch.setattr(web, "DOWNLOAD_PROXY_MODE_FILE", mode_file)
+    web._write_download_proxy_enabled(False)
+    encoded_url = web._encode_download_url("https://video.example/a.mp4")
+    expires = 4102444800
+    signature = web._sign_download_url(encoded_url, expires)
+
+    response = client.get(
+        "/api/download",
+        params={"u": encoded_url, "e": expires, "s": signature},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["msg"] == "download proxy disabled"
 
 
 def test_legacy_error_report_endpoints_use_miniprogram_api_key(monkeypatch, tmp_path):
