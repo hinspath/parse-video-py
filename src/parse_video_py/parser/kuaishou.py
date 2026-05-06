@@ -56,10 +56,14 @@ class KuaiShou(BaseParser):
         images = self._get_atlas_images(data)
         cover_urls = data.get("coverUrls") or data.get("webpCoverUrls") or []
         cover_url = self._get_url(cover_urls[0]) if cover_urls else ""
+        video_url = self._get_video_url(data)
+        if not video_url and not images and cover_url:
+            images = [ImgInfo(url=cover_url)]
 
         return VideoInfo(
-            video_url=self._get_video_url(data),
+            video_url=video_url,
             cover_url=cover_url,
+            music_url=self._get_music_url(data),
             title=data.get("caption", ""),
             author=VideoAuthor(
                 uid=str(data.get("userId", "")),
@@ -108,6 +112,31 @@ class KuaiShou(BaseParser):
                 url = f"https://{cdn_host}{item}"
             images.append(ImgInfo(url=url))
         return images
+
+    def _get_music_url(self, data: dict) -> str:
+        music_urls = ((data.get("music") or {}).get("audioUrls") or [])
+        for item in music_urls:
+            url = self._get_url(item)
+            if url:
+                return url
+
+        atlas = (data.get("ext_params") or {}).get("atlas") or {}
+        music_path = atlas.get("music", "")
+        music_cdn_list = atlas.get("musicCdnList") or []
+        if music_path and music_cdn_list:
+            cdn_host = self._get_cdn_host(music_cdn_list[0])
+            if cdn_host:
+                return f"https://{cdn_host}{music_path}"
+
+        single = (data.get("ext_params") or {}).get("single") or {}
+        music_path = single.get("music", "")
+        music_cdn_list = single.get("musicCdnList") or single.get("cdnList") or []
+        if music_path and music_cdn_list:
+            cdn_host = self._get_cdn_host(music_cdn_list[0])
+            if cdn_host:
+                return f"https://{cdn_host}{music_path}"
+
+        return ""
 
     def _get_url(self, value) -> str:
         if isinstance(value, dict):
