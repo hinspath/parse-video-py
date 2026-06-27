@@ -1199,6 +1199,14 @@
             return item.live_photo_url || item.local_live_photo_url || "";
         }
 
+        function videoPreviewUrl(item) {
+            return item.download_url || item.preview_url || item.resolved_url || item.url || "";
+        }
+
+        function videoDownloadUrl(item) {
+            return item.download_url || item.preview_url || item.resolved_url || item.url || "";
+        }
+
         function renderResult(data) {
             currentData = data;
             mediaItems = [];
@@ -1243,13 +1251,13 @@
             grid.innerHTML = "";
 
             if (selectedVideo && selectedVideo.url) {
-                const officialVideoUrl = selectedVideo.preview_url || selectedVideo.resolved_url || selectedVideo.url;
+                const officialVideoUrl = videoPreviewUrl(selectedVideo);
                 const card = createMediaCard({
                     type: "video",
                     label: selectedVideo.label || "视频",
                     preview: officialVideoUrl,
                     poster: data.cover_url || data.cover || "",
-                    download: officialVideoUrl
+                    download: videoDownloadUrl(selectedVideo)
                 });
                 grid.appendChild(card);
             }
@@ -1314,6 +1322,9 @@
                 event.stopPropagation();
                 downloadUrl(item.download || item.preview, item.label, item.type);
             });
+            if (item.type === "video" && String(item.preview || "").includes("/api/download?")) {
+                return card;
+            }
             resolvePreviewUrl(item.preview).then((resolvedUrl) => {
                 if (!resolvedUrl || resolvedUrl === item.preview) return;
                 item.resolvedPreview = resolvedUrl;
@@ -1339,7 +1350,7 @@
                     if (liveUrl) items.push({ url: liveUrl, name: `live_${index + 1}`, type: "live" });
                 });
             } else if (selectedVideo) {
-                items.push({ url: selectedVideo.preview_url || selectedVideo.resolved_url || selectedVideo.url, name: selectedVideo.label || "video", type: "video" });
+                items.push({ url: videoDownloadUrl(selectedVideo), name: selectedVideo.label || "video", type: "video" });
             }
             if (currentData.music_url) {
                 items.push({ url: currentData.music_url, name: "music", type: "music" });
@@ -1412,7 +1423,7 @@
 
         async function downloadUrl(url, name, type = "") {
             if (!url) return;
-            const finalUrl = await resolvePreviewUrl(url);
+            const finalUrl = String(url).includes("/api/download?") ? url : await resolvePreviewUrl(url);
             const a = document.createElement("a");
             a.href = finalUrl;
             a.target = "_blank";
@@ -1451,6 +1462,7 @@
                 video.src = item.preview;
                 if (item.poster) video.poster = item.poster;
                 stage.appendChild(video);
+                if (String(item.preview || "").includes("/api/download?")) return;
                 resolvePreviewUrl(item.preview).then((resolvedUrl) => {
                     if (!resolvedUrl || resolvedUrl === item.preview) return;
                     item.resolvedPreview = resolvedUrl;
