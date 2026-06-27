@@ -556,3 +556,33 @@ print(
 | flake8      | 工程化：代码风格一致性                          |
 | isort       | 工程化：格式化导入package                     |
 | black       | 工程化：代码格式化                            |
+
+## 小程序微信登录态保护
+
+用于防止小程序被解包后，仅凭前端可见的 `x-api-key` 直接调用 `/api/parse`。
+
+### 阶段一：兼容部署
+
+先部署后端和新版小程序，但不要立即切断旧版小程序。`run.sh` 中保持：
+
+```bash
+export MINIPROGRAM_AUTH_MODE='api_key'
+export WECHAT_MINIPROGRAM_APPID='你的微信小程序AppID'
+export WECHAT_MINIPROGRAM_SECRET='你的微信小程序AppSecret'
+export WECHAT_SESSION_SECRET='请改成随机长密钥'
+export WECHAT_SESSION_TTL_SECONDS='86400'
+```
+
+此时旧版小程序仍可通过 `x-api-key` 使用，新版小程序会先调用 `/api/wx/login` 获取 `x-wx-session`。
+
+### 阶段二：开启强校验
+
+确认新版小程序覆盖后，再改为：
+
+```bash
+export MINIPROGRAM_AUTH_MODE='wechat'
+```
+
+开启后，`/api/parse` 必须携带有效 `x-wx-session`。只从小程序包里拿到 `API_BASE_URL` 和 `x-api-key` 的脚本会被拒绝。
+
+`WECHAT_MINIPROGRAM_SECRET` 和 `WECHAT_SESSION_SECRET` 只能保存在服务器环境变量中，不要提交到 GitHub，也不要写入小程序前端。

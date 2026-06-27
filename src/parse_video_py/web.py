@@ -40,6 +40,11 @@ API_SECRET_TOKEN = os.getenv("API_SECRET_TOKEN", "wxd8f9c2a1b3_my_secret_pwd")
 MINIPROGRAM_API_KEY = os.getenv(
     "MINIPROGRAM_API_KEY", "HinsCheung_Love_Video_Parser_2026_No_Copy"
 )
+MINIPROGRAM_AUTH_MODE = os.getenv("MINIPROGRAM_AUTH_MODE", "api_key").lower()
+WECHAT_MINIPROGRAM_APPID = os.getenv("WECHAT_MINIPROGRAM_APPID", "")
+WECHAT_MINIPROGRAM_SECRET = os.getenv("WECHAT_MINIPROGRAM_SECRET", "")
+WECHAT_SESSION_SECRET = os.getenv("WECHAT_SESSION_SECRET", API_SECRET_TOKEN)
+WECHAT_SESSION_TTL_SECONDS = int(os.getenv("WECHAT_SESSION_TTL_SECONDS", "86400"))
 DOUYIN_COOKIE_UPDATE_PASSWORD = os.getenv(
     "DOUYIN_COOKIE_UPDATE_PASSWORD", "WhatFuck.1"
 )
@@ -85,6 +90,7 @@ AUTH_WHITELIST = {
     "/api/download_proxy_mode",
     "/api/get_errors",
     "/api/resolve_redirect",
+    "/api/wx/login",
     "/api/update_cookie",
     "/api/platform_cookies",
     "/api/platform_cookies/status",
@@ -119,6 +125,10 @@ class AdminPasswordParams(BaseModel):
     password: str = ""
 
 
+class WechatLoginParams(BaseModel):
+    code: str
+
+
 def _request_is_authorized(request: Request) -> bool:
     tokens = {
         value
@@ -129,6 +139,94 @@ def _request_is_authorized(request: Request) -> bool:
         request.headers.get("x-auth-token") in tokens
         or request.headers.get("x-api-key") in tokens
     )
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padded = value + ("=" * (-len(value) % 4))
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def _create_wechat_session_token(openid: str) -> tuple[str, int]:
+    expires_at = int(time.time()) + WECHAT_SESSION_TTL_SECONDS
+    payload = {
+        "openid": openid,
+        "exp": expires_at,
+    }
+    payload_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    encoded_payload = _b64url_encode(payload_text.encode("utf-8"))
+    signature = hmac.new(
+        WECHAT_SESSION_SECRET.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{encoded_payload}.{signature}", expires_at
+
+
+def _verify_wechat_session_token(token: str) -> dict:
+    if not token or "." not in token:
+        raise ValueError("missing wechat session")
+
+    encoded_payload, signature = token.rsplit(".", 1)
+    expected_signature = hmac.new(
+        WECHAT_SESSION_SECRET.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        raise ValueError("invalid wechat session")
+
+    payload = json.loads(_b64url_decode(encoded_payload).decode("utf-8"))
+    if int(payload.get("exp") or 0) < int(time.time()):
+        raise ValueError("wechat session expired")
+    if not payload.get("openid"):
+        raise ValueError("invalid wechat session payload")
+    return payload
+
+
+def _request_has_wechat_session(request: Request) -> bool:
+    token = (request.headers.get("x-wx-session") or "").strip()
+    try:
+        _verify_wechat_session_token(token)
+        return True
+    except Exception:
+        return False
+
+
+def _miniprogram_requires_wechat_session() -> bool:
+    return MINIPROGRAM_AUTH_MODE in {"wechat", "wx", "openid"}
+
+
+def _miniprogram_request_is_authorized(request: Request) -> bool:
+    if _miniprogram_requires_wechat_session():
+        return _request_has_wechat_session(request)
+    return _request_is_authorized(request)
+
+
+async def _wechat_code_to_openid(code: str) -> str:
+    if not WECHAT_MINIPROGRAM_APPID or not WECHAT_MINIPROGRAM_SECRET:
+        raise RuntimeError("wechat appid/secret not configured")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            "https://api.weixin.qq.com/sns/jscode2session",
+            params={
+                "appid": WECHAT_MINIPROGRAM_APPID,
+                "secret": WECHAT_MINIPROGRAM_SECRET,
+                "js_code": code,
+                "grant_type": "authorization_code",
+            },
+        )
+    payload = response.json()
+    if payload.get("errcode"):
+        raise RuntimeError(payload.get("errmsg") or "wechat login failed")
+    openid = payload.get("openid")
+    if not openid:
+        raise RuntimeError("wechat login did not return openid")
+    return str(openid)
 
 
 def _admin_password_is_valid(password: str) -> bool:
@@ -619,7 +717,7 @@ async def verify_secret_header(request: Request, call_next):
     if path in AUTH_WHITELIST or path.startswith(AUTH_WHITELIST_PREFIXES):
         return await call_next(request)
 
-    if not _request_is_authorized(request):
+    if not (_request_is_authorized(request) or _request_has_wechat_session(request)):
         return JSONResponse(
             status_code=403,
             content={"code": 403, "msg": "鉴权失败：请在 Header 中提供正确的 x-auth-token"},
@@ -721,6 +819,26 @@ async def get_download_proxy_mode_api():
     }
 
 
+@app.post("/api/wx/login")
+async def wechat_login_api(params: WechatLoginParams):
+    try:
+        openid = await _wechat_code_to_openid(params.code.strip())
+        token, expires_at = _create_wechat_session_token(openid)
+        return {
+            "code": 200,
+            "msg": "ok",
+            "data": {
+                "token": token,
+                "expires_at": expires_at,
+            },
+        }
+    except Exception as err:
+        return JSONResponse(
+            status_code=401,
+            content={"code": 401, "msg": str(err)},
+        )
+
+
 @app.post("/api/download_proxy_mode")
 async def update_download_proxy_mode_api(request: Request, params: DownloadProxyModeParams):
     if not _request_is_authorized(request) and not _admin_request_is_authorized(
@@ -748,6 +866,11 @@ async def share_url_parse(request: Request, url: str):
 @app.get("/api/parse")
 @app.get("/api/analysis")
 async def legacy_parse_api(request: Request, url: str):
+    if not _miniprogram_request_is_authorized(request):
+        return JSONResponse(
+            status_code=401,
+            content={"code": 401, "msg": "微信登录态无效，请重新进入小程序"},
+        )
     return await _parse_share_url_payload(url, request)
 
 

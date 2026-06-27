@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.1.23] - 2026-06-27
+
+### 新增
+
+- **小程序微信登录态校验**：新增 `/api/wx/login`，后端使用微信小程序 `code2session` 换取 `openid` 后签发短期 `x-wx-session`。
+- **小程序接口灰度开关**：新增 `MINIPROGRAM_AUTH_MODE`，默认 `api_key` 兼容旧小程序；设置为 `wechat` 后 `/api/parse` 必须携带有效 `x-wx-session`，避免解包后仅凭前端 `x-api-key` 直接调用接口。
+
+### 部署
+
+- 新增环境变量：`WECHAT_MINIPROGRAM_APPID`、`WECHAT_MINIPROGRAM_SECRET`、`WECHAT_SESSION_SECRET`、`WECHAT_SESSION_TTL_SECONDS`。
+
+---
 所有重要变更均会记录在此文件中。
 
 ## [v1.1.22] - 2026-05-06
