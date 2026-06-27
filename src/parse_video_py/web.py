@@ -74,10 +74,17 @@ DOWNLOAD_PROXY_MODE_FILE = Path(
         str(Path.cwd() / ".runtime" / "download_proxy_mode.json"),
     )
 )
+WEB_PROXY_MODE_FILE = Path(
+    os.getenv(
+        "WEB_PROXY_MODE_FILE",
+        str(Path.cwd() / ".runtime" / "web_proxy_mode.json"),
+    )
+)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DOWNLOAD_PROXY_SECRET = os.getenv("DOWNLOAD_PROXY_SECRET", API_SECRET_TOKEN)
 DOWNLOAD_PROXY_TTL_SECONDS = int(os.getenv("DOWNLOAD_PROXY_TTL_SECONDS", "1800"))
 DOWNLOAD_PROXY_ENABLED_DEFAULT = os.getenv("DOWNLOAD_PROXY_ENABLED", "true")
+WEB_PROXY_ENABLED_DEFAULT = os.getenv("WEB_PROXY_ENABLED", "true")
 TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
 TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 AUTH_WHITELIST = {
@@ -90,6 +97,8 @@ AUTH_WHITELIST = {
     "/favicon.png",
     "/api/download",
     "/api/download_proxy_mode",
+    "/api/web_download",
+    "/api/web_proxy_mode",
     "/api/get_errors",
     "/api/resolve_redirect",
     "/api/wx/login",
@@ -321,9 +330,15 @@ def _add_compat_fields(data: dict) -> dict:
     return data
 
 
-def _success_payload(video_info, request: Request | None = None):
+def _success_payload(
+    video_info,
+    request: Request | None = None,
+    include_web_proxy: bool = False,
+):
     data = _add_compat_fields(dataclasses.asdict(video_info))
     _add_download_proxy_fields(data, request)
+    if include_web_proxy:
+        _add_web_proxy_fields(data, request)
     return {
         "code": 200,
         "msg": "解析成功",
@@ -331,7 +346,11 @@ def _success_payload(video_info, request: Request | None = None):
     }
 
 
-async def _parse_share_url_payload(url: str, request: Request | None = None):
+async def _parse_share_url_payload(
+    url: str,
+    request: Request | None = None,
+    include_web_proxy: bool = False,
+):
     video_share_url = extract_url(url)
     if video_share_url is None:
         return {
@@ -347,7 +366,7 @@ async def _parse_share_url_payload(url: str, request: Request | None = None):
 
     try:
         video_info = await parse_video_share_url(video_share_url)
-        return _success_payload(video_info, request)
+        return _success_payload(video_info, request, include_web_proxy)
     except Exception as err:
         return {
             "code": 500,
@@ -493,6 +512,34 @@ def _write_download_proxy_enabled(enabled: bool) -> None:
         pass
 
 
+def _read_web_proxy_enabled() -> bool:
+    try:
+        if WEB_PROXY_MODE_FILE.exists():
+            raw = json.loads(WEB_PROXY_MODE_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and "enabled" in raw:
+                return bool(raw["enabled"])
+    except Exception as err:
+        print(f"[WebProxy] read mode failed: {err}")
+
+    return _parse_bool(WEB_PROXY_ENABLED_DEFAULT, True)
+
+
+def _write_web_proxy_enabled(enabled: bool) -> None:
+    WEB_PROXY_MODE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WEB_PROXY_MODE_FILE.write_text(
+        json.dumps(
+            {"enabled": bool(enabled), "updated_at": int(time.time())},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    try:
+        os.chmod(WEB_PROXY_MODE_FILE, 0o600)
+    except Exception:
+        pass
+
+
 def _bootstrap_persisted_douyin_cookie() -> None:
     cookie = _read_platform_cookies().get("douyin", "")
     if cookie:
@@ -539,7 +586,11 @@ def _sign_download_url(encoded_url: str, expires: int) -> str:
     return hmac.new(secret, payload, hashlib.sha256).hexdigest()
 
 
-def _build_download_proxy_url(url: str, request: Request | None) -> str:
+def _build_download_proxy_url(
+    url: str,
+    request: Request | None,
+    path: str = "/api/download",
+) -> str:
     if not url:
         return ""
 
@@ -550,7 +601,7 @@ def _build_download_proxy_url(url: str, request: Request | None) -> str:
     encoded_url = _encode_download_url(url)
     expires = int(time.time()) + DOWNLOAD_PROXY_TTL_SECONDS
     signature = _sign_download_url(encoded_url, expires)
-    return f"{base_url}/api/download?u={encoded_url}&e={expires}&s={signature}"
+    return f"{base_url}{path}?u={encoded_url}&e={expires}&s={signature}"
 
 
 def _verify_download_proxy_params(encoded_url: str, expires: int, signature: str) -> str:
@@ -738,6 +789,58 @@ def _add_download_proxy_fields(data: dict, request: Request | None) -> None:
             )
 
 
+def _add_web_proxy_fields(data: dict, request: Request | None) -> None:
+    data["web_proxy_enabled"] = _read_web_proxy_enabled()
+    if not data["web_proxy_enabled"]:
+        return
+
+    if request is None:
+        return
+
+    if data.get("video_url"):
+        data["web_download_url"] = _build_download_proxy_url(
+            data["video_url"],
+            request,
+            "/api/web_download",
+        )
+    if data.get("cover_url"):
+        data["web_cover_download_url"] = _build_download_proxy_url(
+            data["cover_url"],
+            request,
+            "/api/web_download",
+        )
+    if data.get("music_url"):
+        data["web_music_download_url"] = _build_download_proxy_url(
+            data["music_url"],
+            request,
+            "/api/web_download",
+        )
+
+    for video in data.get("video_urls") or []:
+        if isinstance(video, dict) and video.get("url"):
+            video["web_download_url"] = _build_download_proxy_url(
+                video["url"],
+                request,
+                "/api/web_download",
+            )
+
+    for image in data.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        if image.get("url"):
+            image["web_download_url"] = _build_download_proxy_url(
+                image["url"],
+                request,
+                "/api/web_download",
+            )
+        if image.get("live_photo_url"):
+            image["web_live_photo_download_url"] = _build_download_proxy_url(
+                image["live_photo_url"],
+                request,
+                "/api/web_download",
+            )
+
+
 async def _resolve_redirect_url(url: str) -> str:
     headers = {
         "User-Agent": (
@@ -867,6 +970,15 @@ async def get_download_proxy_mode_api():
     }
 
 
+@app.get("/api/web_proxy_mode")
+async def get_web_proxy_mode_api():
+    return {
+        "code": 200,
+        "msg": "ok",
+        "data": {"enabled": _read_web_proxy_enabled()},
+    }
+
+
 @app.post("/api/wx/login")
 async def wechat_login_api(params: WechatLoginParams):
     try:
@@ -906,6 +1018,25 @@ async def update_download_proxy_mode_api(request: Request, params: DownloadProxy
     }
 
 
+@app.post("/api/web_proxy_mode")
+async def update_web_proxy_mode_api(request: Request, params: DownloadProxyModeParams):
+    if not _request_is_authorized(request) and not _admin_request_is_authorized(
+        request,
+        params.password,
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "auth failed"},
+        )
+
+    _write_web_proxy_enabled(params.enabled)
+    return {
+        "code": 200,
+        "msg": "web proxy mode updated",
+        "data": {"enabled": params.enabled},
+    }
+
+
 @app.get("/video/share/url/parse")
 async def share_url_parse(request: Request, url: str):
     if not await _request_has_valid_turnstile(request):
@@ -913,7 +1044,7 @@ async def share_url_parse(request: Request, url: str):
             status_code=403,
             content={"code": 403, "msg": "验证码校验失败，请刷新页面后重试"},
         )
-    return await _parse_share_url_payload(url, request)
+    return await _parse_share_url_payload(url, request, include_web_proxy=True)
 
 
 @app.get("/api/parse")
@@ -934,14 +1065,7 @@ async def legacy_resolve_redirect_api(url: str):
     return {"code": 200, "url": await _resolve_redirect_url(url)}
 
 
-@app.get("/api/download")
-async def proxy_download_api(request: Request, u: str, e: int, s: str):
-    if not _read_download_proxy_enabled():
-        return JSONResponse(
-            status_code=403,
-            content={"code": 403, "msg": "download proxy disabled"},
-        )
-
+async def _stream_proxy_download(request: Request, u: str, e: int, s: str):
     try:
         target_url = _verify_download_proxy_params(u, e, s)
     except Exception as err:
@@ -1091,6 +1215,26 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
         headers=response_headers,
         media_type=media_type,
     )
+
+
+@app.get("/api/download")
+async def proxy_download_api(request: Request, u: str, e: int, s: str):
+    if not _read_download_proxy_enabled():
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "download proxy disabled"},
+        )
+    return await _stream_proxy_download(request, u, e, s)
+
+
+@app.get("/api/web_download")
+async def web_proxy_download_api(request: Request, u: str, e: int, s: str):
+    if not _read_web_proxy_enabled():
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "web download proxy disabled"},
+        )
+    return await _stream_proxy_download(request, u, e, s)
 
 
 @app.get("/api/get_errors")

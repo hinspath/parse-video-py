@@ -382,6 +382,15 @@
                     <button class="btn btn-primary" id="enableProxyBtn" type="button">开启代理下载</button>
                     <button class="btn btn-dark" id="disableProxyBtn" type="button">暂停代理下载</button>
                 </div>
+                <div class="panel-title" style="margin-top: 22px;">
+                    <h2>Web 端代理</h2>
+                    <button class="btn btn-line" id="refreshWebProxyBtn" type="button">刷新状态</button>
+                </div>
+                <p class="status" id="webProxyStatus">正在读取...</p>
+                <div class="button-row">
+                    <button class="btn btn-primary" id="enableWebProxyBtn" type="button">开启 Web 代理</button>
+                    <button class="btn btn-dark" id="disableWebProxyBtn" type="button">关闭 Web 代理</button>
+                </div>
             </section>
 
             <section class="panel">
@@ -458,6 +467,43 @@
                 }
                 showToast(enabled ? "已开启代理下载" : "已暂停代理下载");
                 loadProxyMode();
+            } catch (error) {
+                showToast(`切换失败：${error.message}`);
+            }
+        }
+
+        async function loadWebProxyMode() {
+            try {
+                $("webProxyStatus").textContent = "正在读取...";
+                const response = await fetch("/api/web_proxy_mode", { cache: "no-store" });
+                const payload = await response.json();
+                const enabled = !!(payload.data && payload.data.enabled);
+                $("webProxyStatus").textContent = enabled
+                    ? "当前状态：已开启 Web 端代理。网页预览和下载会优先走 dl.hins.top。"
+                    : "当前状态：已关闭 Web 端代理。网页预览和下载使用原始官方 CDN 地址。";
+                $("enableWebProxyBtn").disabled = enabled;
+                $("disableWebProxyBtn").disabled = !enabled;
+            } catch (error) {
+                $("webProxyStatus").textContent = `读取失败：${error.message}`;
+            }
+        }
+
+        async function setWebProxyMode(enabled) {
+            if (!ensurePassword()) return;
+            if (!enabled && !window.confirm("确认关闭 Web 端代理吗？网页将回到原始 CDN 预览和下载。")) return;
+
+            try {
+                const response = await fetch("/api/web_proxy_mode", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled, password: getPassword() })
+                });
+                const payload = await response.json();
+                if (!response.ok || payload.code !== 200) {
+                    throw new Error(payload.msg || "切换失败");
+                }
+                showToast(enabled ? "已开启 Web 端代理" : "已关闭 Web 端代理");
+                loadWebProxyMode();
             } catch (error) {
                 showToast(`切换失败：${error.message}`);
             }
@@ -605,11 +651,15 @@
         $("refreshProxyBtn").addEventListener("click", loadProxyMode);
         $("enableProxyBtn").addEventListener("click", () => setProxyMode(true));
         $("disableProxyBtn").addEventListener("click", () => setProxyMode(false));
+        $("refreshWebProxyBtn").addEventListener("click", loadWebProxyMode);
+        $("enableWebProxyBtn").addEventListener("click", () => setWebProxyMode(true));
+        $("disableWebProxyBtn").addEventListener("click", () => setWebProxyMode(false));
         $("refreshDomainsBtn").addEventListener("click", loadDomains);
         $("clearDomainsBtn").addEventListener("click", clearDomains);
 
         loadCookieStatus();
         loadProxyMode();
+        loadWebProxyMode();
         loadDomains();
     </script>
 </body>
