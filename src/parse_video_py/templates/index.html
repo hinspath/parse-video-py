@@ -242,6 +242,12 @@
             transform: translateY(1px);
         }
 
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            transform: none;
+        }
+
         .btn-primary {
             flex: 1;
             color: #fff;
@@ -900,6 +906,7 @@
         let pendingTurnstileResolve = null;
         let pendingTurnstileReject = null;
         let currentTurnstileToken = "";
+        let isParsing = false;
         const demoUrl = "https://v.douyin.com/dRj-CU9n1GQ/";
         const placeholders = [
             "抖音示例：https://v.douyin.com/视频号/",
@@ -939,6 +946,16 @@
             $("loading").style.display = show ? "grid" : "none";
         }
 
+        function updateSearchButtonState() {
+            const button = $("searchBtn");
+            if (!button) return;
+            const needsCaptcha = Boolean(TURNSTILE_SITE_KEY);
+            button.disabled = isParsing || (needsCaptcha && !currentTurnstileToken);
+            button.textContent = isParsing
+                ? "解析中..."
+                : (needsCaptcha && !currentTurnstileToken ? "请先完成验证" : "搜索");
+        }
+
         function loadJson(key, fallback) {
             try {
                 return JSON.parse(localStorage.getItem(key)) || fallback;
@@ -976,22 +993,26 @@
                 language: "zh-CN",
                 callback(token) {
                     currentTurnstileToken = token || "";
+                    updateSearchButtonState();
                     if (pendingTurnstileResolve) pendingTurnstileResolve(token);
                     pendingTurnstileResolve = null;
                     pendingTurnstileReject = null;
                 },
                 "error-callback"() {
                     currentTurnstileToken = "";
+                    updateSearchButtonState();
                     if (pendingTurnstileReject) pendingTurnstileReject(new Error("验证码加载失败"));
                     pendingTurnstileResolve = null;
                     pendingTurnstileReject = null;
                 },
                 "expired-callback"() {
                     currentTurnstileToken = "";
+                    updateSearchButtonState();
                     if (turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
                 },
                 "timeout-callback"() {
                     currentTurnstileToken = "";
+                    updateSearchButtonState();
                     if (pendingTurnstileReject) pendingTurnstileReject(new Error("验证码已超时，请重试"));
                     pendingTurnstileResolve = null;
                     pendingTurnstileReject = null;
@@ -1004,6 +1025,7 @@
             currentTurnstileToken = "";
             pendingTurnstileResolve = null;
             pendingTurnstileReject = null;
+            updateSearchButtonState();
             if (TURNSTILE_SITE_KEY && window.turnstile && turnstileWidgetId !== null) {
                 window.turnstile.reset(turnstileWidgetId);
             }
@@ -1088,6 +1110,12 @@
         }
 
         async function parseCurrentUrl() {
+            if (isParsing) return;
+            if (TURNSTILE_SITE_KEY && !currentTurnstileToken) {
+                showToast("请先完成验证码");
+                updateSearchButtonState();
+                return;
+            }
             const url = $("url").value.trim();
             if (!url) {
                 showToast("请先粘贴分享链接");
@@ -1095,6 +1123,8 @@
                 return;
             }
 
+            isParsing = true;
+            updateSearchButtonState();
             setLoading(true);
             try {
                 const headers = getParseHeaders();
@@ -1115,6 +1145,7 @@
                 showToast(`解析失败：${error.message}`);
             } finally {
                 setLoading(false);
+                isParsing = false;
                 resetTurnstile();
             }
         }
@@ -1531,6 +1562,7 @@
         setInterval(renderRuntime, 1000);
         renderHistory();
         bindEvents();
+        updateSearchButtonState();
         setTimeout(initTurnstile, 800);
     </script>
 </body>
