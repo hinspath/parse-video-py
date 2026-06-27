@@ -218,8 +218,10 @@
         }
 
         #turnstileBox {
-            min-height: 0;
+            min-height: 65px;
             margin-top: 10px;
+            display: flex;
+            justify-content: center;
         }
 
         .btn {
@@ -897,6 +899,7 @@
         let turnstileWidgetId = null;
         let pendingTurnstileResolve = null;
         let pendingTurnstileReject = null;
+        let currentTurnstileToken = "";
         const demoUrl = "https://v.douyin.com/dRj-CU9n1GQ/";
         const placeholders = [
             "抖音示例：https://v.douyin.com/视频号/",
@@ -967,21 +970,44 @@
             if (!TURNSTILE_SITE_KEY || !window.turnstile || turnstileWidgetId !== null) return;
             turnstileWidgetId = window.turnstile.render("#turnstileBox", {
                 sitekey: TURNSTILE_SITE_KEY,
-                size: "invisible",
+                size: "normal",
+                appearance: "always",
+                execution: "execute",
+                theme: "light",
+                language: "zh-CN",
                 callback(token) {
+                    currentTurnstileToken = token || "";
                     if (pendingTurnstileResolve) pendingTurnstileResolve(token);
                     pendingTurnstileResolve = null;
                     pendingTurnstileReject = null;
                 },
                 "error-callback"() {
+                    currentTurnstileToken = "";
                     if (pendingTurnstileReject) pendingTurnstileReject(new Error("验证码加载失败"));
                     pendingTurnstileResolve = null;
                     pendingTurnstileReject = null;
                 },
                 "expired-callback"() {
+                    currentTurnstileToken = "";
+                    if (turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
+                },
+                "timeout-callback"() {
+                    currentTurnstileToken = "";
+                    if (pendingTurnstileReject) pendingTurnstileReject(new Error("验证码已超时，请重试"));
+                    pendingTurnstileResolve = null;
+                    pendingTurnstileReject = null;
                     if (turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
                 }
             });
+        }
+
+        function resetTurnstile() {
+            currentTurnstileToken = "";
+            pendingTurnstileResolve = null;
+            pendingTurnstileReject = null;
+            if (TURNSTILE_SITE_KEY && window.turnstile && turnstileWidgetId !== null) {
+                window.turnstile.reset(turnstileWidgetId);
+            }
         }
 
         function getTurnstileToken() {
@@ -997,6 +1023,7 @@
                         }
                         pendingTurnstileResolve = resolve;
                         pendingTurnstileReject = reject;
+                        currentTurnstileToken = "";
                         window.turnstile.reset(turnstileWidgetId);
                         window.turnstile.execute(turnstileWidgetId);
                         return;
@@ -1088,6 +1115,7 @@
                 showToast(`解析失败：${error.message}`);
             } finally {
                 setLoading(false);
+                resetTurnstile();
             }
         }
 
