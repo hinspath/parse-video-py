@@ -972,7 +972,6 @@
                 sitekey: TURNSTILE_SITE_KEY,
                 size: "normal",
                 appearance: "always",
-                execution: "execute",
                 theme: "light",
                 language: "zh-CN",
                 callback(token) {
@@ -1021,11 +1020,12 @@
                             reject(new Error("验证码初始化失败"));
                             return;
                         }
+                        if (currentTurnstileToken) {
+                            resolve(currentTurnstileToken);
+                            return;
+                        }
                         pendingTurnstileResolve = resolve;
                         pendingTurnstileReject = reject;
-                        currentTurnstileToken = "";
-                        window.turnstile.reset(turnstileWidgetId);
-                        window.turnstile.execute(turnstileWidgetId);
                         return;
                     }
                     if (Date.now() - start > 8000) {
