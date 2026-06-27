@@ -78,6 +78,8 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DOWNLOAD_PROXY_SECRET = os.getenv("DOWNLOAD_PROXY_SECRET", API_SECRET_TOKEN)
 DOWNLOAD_PROXY_TTL_SECONDS = int(os.getenv("DOWNLOAD_PROXY_TTL_SECONDS", "1800"))
 DOWNLOAD_PROXY_ENABLED_DEFAULT = os.getenv("DOWNLOAD_PROXY_ENABLED", "true")
+TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 AUTH_WHITELIST = {
     "/",
     "/admin",
@@ -192,6 +194,35 @@ def _request_has_wechat_session(request: Request) -> bool:
     try:
         _verify_wechat_session_token(token)
         return True
+    except Exception:
+        return False
+
+
+async def _request_has_valid_turnstile(request: Request) -> bool:
+    if not TURNSTILE_SECRET_KEY:
+        return True
+
+    token = (
+        request.headers.get("x-turnstile-token")
+        or request.query_params.get("turnstile_token")
+        or ""
+    ).strip()
+    if not token:
+        return False
+
+    remote_ip = request.client.host if request.client else ""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.post(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data={
+                    "secret": TURNSTILE_SECRET_KEY,
+                    "response": token,
+                    "remoteip": remote_ip,
+                },
+            )
+        payload = response.json()
+        return bool(payload.get("success"))
     except Exception:
         return False
 
@@ -733,6 +764,7 @@ async def read_item(request: Request):
         name="index.html",
         context={
             "title": "Video Parser",
+            "turnstile_site_key": TURNSTILE_SITE_KEY,
         },
     )
 
@@ -860,6 +892,11 @@ async def update_download_proxy_mode_api(request: Request, params: DownloadProxy
 
 @app.get("/video/share/url/parse")
 async def share_url_parse(request: Request, url: str):
+    if not await _request_has_valid_turnstile(request):
+        return JSONResponse(
+            status_code=403,
+            content={"code": 403, "msg": "验证码校验失败，请刷新页面后重试"},
+        )
     return await _parse_share_url_payload(url, request)
 
 

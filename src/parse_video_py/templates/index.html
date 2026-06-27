@@ -6,6 +6,9 @@
     <meta name="renderer" content="webkit">
     <title>{{ title }}</title>
     <link rel="icon" type="image/png" href="/favicon.png">
+    {% if turnstile_site_key %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+    {% endif %}
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <style>
@@ -212,6 +215,11 @@
             display: flex;
             gap: 10px;
             margin-top: 14px;
+        }
+
+        #turnstileBox {
+            min-height: 0;
+            margin-top: 10px;
         }
 
         .btn {
@@ -773,6 +781,9 @@
                     <button class="btn btn-primary" id="searchBtn" type="button">搜索</button>
                     <button class="btn btn-secondary" id="clearBtn" type="button">清空</button>
                 </div>
+                {% if turnstile_site_key %}
+                <div id="turnstileBox"></div>
+                {% endif %}
             </section>
 
             <footer class="footer">
@@ -882,6 +893,10 @@
             history: "hins-parser-history",
             cookies: "hins-parser-user-cookies"
         };
+        const TURNSTILE_SITE_KEY = "{{ turnstile_site_key or '' }}";
+        let turnstileWidgetId = null;
+        let pendingTurnstileResolve = null;
+        let pendingTurnstileReject = null;
         const demoUrl = "https://v.douyin.com/dRj-CU9n1GQ/";
         const placeholders = [
             "抖音示例：https://v.douyin.com/视频号/",
@@ -948,6 +963,54 @@
             return headers;
         }
 
+        function initTurnstile() {
+            if (!TURNSTILE_SITE_KEY || !window.turnstile || turnstileWidgetId !== null) return;
+            turnstileWidgetId = window.turnstile.render("#turnstileBox", {
+                sitekey: TURNSTILE_SITE_KEY,
+                size: "invisible",
+                callback(token) {
+                    if (pendingTurnstileResolve) pendingTurnstileResolve(token);
+                    pendingTurnstileResolve = null;
+                    pendingTurnstileReject = null;
+                },
+                "error-callback"() {
+                    if (pendingTurnstileReject) pendingTurnstileReject(new Error("验证码加载失败"));
+                    pendingTurnstileResolve = null;
+                    pendingTurnstileReject = null;
+                },
+                "expired-callback"() {
+                    if (turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
+                }
+            });
+        }
+
+        function getTurnstileToken() {
+            if (!TURNSTILE_SITE_KEY) return Promise.resolve("");
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+                const waitReady = () => {
+                    if (window.turnstile) {
+                        initTurnstile();
+                        if (turnstileWidgetId === null) {
+                            reject(new Error("验证码初始化失败"));
+                            return;
+                        }
+                        pendingTurnstileResolve = resolve;
+                        pendingTurnstileReject = reject;
+                        window.turnstile.reset(turnstileWidgetId);
+                        window.turnstile.execute(turnstileWidgetId);
+                        return;
+                    }
+                    if (Date.now() - start > 8000) {
+                        reject(new Error("验证码加载超时"));
+                        return;
+                    }
+                    setTimeout(waitReady, 120);
+                };
+                waitReady();
+            });
+        }
+
         function updatePlaceholder() {
             $("url").placeholder = placeholders[placeholderIndex % placeholders.length];
             placeholderIndex += 1;
@@ -1007,8 +1070,11 @@
 
             setLoading(true);
             try {
+                const headers = getParseHeaders();
+                const turnstileToken = await getTurnstileToken();
+                if (turnstileToken) headers["x-turnstile-token"] = turnstileToken;
                 const response = await fetch(`/video/share/url/parse?url=${encodeURIComponent(url)}`, {
-                    headers: getParseHeaders(),
+                    headers,
                     cache: "no-store"
                 });
                 const payload = await response.json();
@@ -1437,6 +1503,7 @@
         setInterval(renderRuntime, 1000);
         renderHistory();
         bindEvents();
+        setTimeout(initTurnstile, 800);
     </script>
 </body>
 </html>
