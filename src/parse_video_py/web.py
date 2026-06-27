@@ -601,9 +601,10 @@ async def _open_upstream_download(
     target_url: str,
     request_headers: dict,
     start: int = 0,
+    force_range: bool = False,
 ) -> httpx.Response:
     headers = dict(request_headers)
-    if start > 0:
+    if force_range or start > 0:
         headers["Range"] = f"bytes={start}-"
 
     return await client.send(
@@ -622,6 +623,21 @@ def _parse_content_range_total(value: str | None) -> int:
     except Exception:
         return 0
     return 0
+
+
+def _parse_range_start(value: str | None) -> int:
+    if not value:
+        return 0
+    text = value.strip().lower()
+    if not text.startswith("bytes="):
+        return 0
+    start_text = text[6:].split(",", 1)[0].split("-", 1)[0].strip()
+    if not start_text:
+        return 0
+    try:
+        return max(0, int(start_text))
+    except Exception:
+        return 0
 
 
 def _get_upstream_total_size(upstream: httpx.Response) -> int:
@@ -935,6 +951,11 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
         )
 
     request_headers = _download_request_headers(target_url)
+    range_header = request.headers.get("range")
+    range_requested = bool(
+        range_header and range_header.strip().lower().startswith("bytes=")
+    )
+    range_start = _parse_range_start(range_header)
     # WeChat downloadFile expects a stable 200 stream. Some upstream video CDNs
     # drop long connections mid-file, so the proxy retries upstream with Range
     # and keeps one continuous response open for the client.
@@ -948,6 +969,8 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
             client,
             target_url,
             request_headers,
+            range_start,
+            range_requested,
         )
     except Exception as err:
         await client.aclose()
@@ -975,17 +998,26 @@ async def proxy_download_api(request: Request, u: str, e: int, s: str):
     media_type = upstream.headers.get("content-type") or "application/octet-stream"
     extension = _guess_download_extension(target_url, media_type)
     filename = f"download.{extension}"
-    if total_size:
+    range_response = range_requested and upstream.status_code == 206 and total_size
+    if range_response:
+        response_headers["content-length"] = str(max(0, total_size - range_start))
+        response_headers["Content-Range"] = f"bytes {range_start}-{total_size - 1}/{total_size}"
+    elif total_size:
         response_headers["content-length"] = str(total_size)
+    disposition = "inline" if range_requested else "attachment"
     response_headers["Content-Disposition"] = (
-        f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}'
+        f'{disposition}; filename="{filename}"; filename*=UTF-8\'\'{filename}'
     )
-    response_headers["Accept-Ranges"] = "none"
-    status_code = 200 if upstream.status_code == 206 else upstream.status_code
+    response_headers["Accept-Ranges"] = "bytes"
+    status_code = (
+        206
+        if range_response
+        else (200 if upstream.status_code == 206 else upstream.status_code)
+    )
 
     async def stream_body():
         nonlocal upstream
-        sent = 0
+        sent = range_start if range_response else 0
         retry_count = 0
         max_retries = 8
         try:
