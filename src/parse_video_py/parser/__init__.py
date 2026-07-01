@@ -6,6 +6,7 @@ from .doupai import DouPai
 from .douyin import DouYin
 from .haokan import HaoKan
 from .huya import HuYa
+from .jimeng import Jimeng
 from .kuaishou import KuaiShou
 from .lishipin import LiShiPin
 from .lvzhou import LvZhou
@@ -34,6 +35,10 @@ video_source_info_mapping = {
     VideoSource.CCTV: {
         "domain_list": ["tv.cctv.cn", "tv.cctv.com"],
         "parser": CCTV,
+    },
+    VideoSource.Jimeng: {
+        "domain_list": ["jimeng.jianying.com"],
+        "parser": Jimeng,
     },
     VideoSource.DouPai: {
         "domain_list": ["doupai.cc"],

@@ -34,14 +34,11 @@ def test_admin_page_accepts_basic_auth():
     assert "Admin" in response.text
 
 
-def test_share_url_parse_requires_auth():
+def test_share_url_parse_web_entry_is_public_when_turnstile_disabled():
     response = client.get("/video/share/url/parse", params={"url": "这不是链接"})
 
-    assert response.status_code == 403
-    assert response.json() == {
-        "code": 403,
-        "msg": "鉴权失败：请在 Header 中提供正确的 x-auth-token",
-    }
+    assert response.status_code == 200
+    assert response.json()["code"] == 400
 
 
 def test_share_url_parse_returns_400_when_no_url_found():
@@ -104,7 +101,10 @@ def test_update_cookie_api_updates_global_cookie(monkeypatch, tmp_path):
         )
 
         assert response.status_code == 200
-        assert response.json() == {"code": 200, "msg": "Cookie 更新成功，已保存，重启后仍生效"}
+        assert response.json() == {
+            "code": 200,
+            "msg": "Cookie 更新成功，已保存，重启后仍生效",
+        }
         assert cookie_file.read_text(encoding="utf-8") == "ttwid=abc"
         assert douyin.GLOBAL_DY_COOKIE == "ttwid=abc"
     finally:
@@ -156,9 +156,7 @@ def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch, tmp_path):
     assert payload["data"]["url"] == "https://video.example/a.mp4"
     assert payload["data"]["cover"] == "https://image.example/cover.jpg"
     assert payload["data"]["download_proxy_enabled"] is True
-    assert payload["data"]["download_url"].startswith(
-        "http://testserver/api/download?"
-    )
+    assert payload["data"]["download_url"].startswith("http://testserver/api/download?")
     assert payload["data"]["cover_download_url"].startswith(
         "http://testserver/api/download?"
     )
@@ -181,11 +179,14 @@ def test_legacy_parse_accepts_miniprogram_api_key(monkeypatch, tmp_path):
 
     parsed_download = urlparse(payload["data"]["download_url"])
     params = parse_qs(parsed_download.query)
-    assert web._verify_download_proxy_params(
-        params["u"][0],
-        int(params["e"][0]),
-        params["s"][0],
-    ) == "https://video.example/a.mp4"
+    assert (
+        web._verify_download_proxy_params(
+            params["u"][0],
+            int(params["e"][0]),
+            params["s"][0],
+        )
+        == "https://video.example/a.mp4"
+    )
 
 
 def test_legacy_analysis_alias_accepts_miniprogram_api_key(monkeypatch):
@@ -361,7 +362,7 @@ def test_legacy_clear_errors_removes_all_domains(monkeypatch, tmp_path):
     error_file.write_text('["cdn.example.com"]', encoding="utf-8")
     monkeypatch.setattr(web, "ERROR_REPORT_FILE", error_file)
 
-    response = client.post("/api/clear_errors", headers=AUTH_HEADERS)
+    response = client.post("/api/clear_errors", json={}, headers=AUTH_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["data"] == []
