@@ -171,8 +171,7 @@ class Jimeng(BaseParser):
         )
 
     def _build_image_info(self, data: dict) -> VideoInfo:
-        common = data.get("common_attr") or {}
-        title = self._item_title(data)
+        title = self._image_title(data)
         image_urls = self._extract_image_urls(data)
         if not image_urls:
             raise ValueError(self.NO_RESOURCE_MESSAGE)
@@ -498,6 +497,24 @@ class Jimeng(BaseParser):
                 return title
         return self._clean_title(self._prompt_title(data))
 
+    def _image_title(self, data: dict) -> str:
+        title = self._image_prompt(data)
+        if title:
+            return title
+        return self._item_title(data)
+
+    def _image_prompt(self, data: dict) -> str:
+        params = data.get("aigc_image_params") or {}
+        text2image = params.get("text2image_params") or {}
+        for key in ("prompt", "reference_prompt"):
+            title = self._clean_title(text2image.get(key) or params.get(key) or "")
+            if title:
+                return title
+
+        draft = data.get("aigc_draft") or {}
+        content = self._parse_json_object(draft.get("content"))
+        return self._clean_title(self._first_nested_text(content, "prompt"))
+
     @staticmethod
     def _clean_title(value: str) -> str:
         if not isinstance(value, str):
@@ -505,6 +522,34 @@ class Jimeng(BaseParser):
         title = re.sub(r"\s+", " ", value).strip()
         title = re.sub(r"^@[\w\-\u4e00-\u9fff]+\s+", "", title)
         return title
+
+    @staticmethod
+    def _parse_json_object(value) -> dict:
+        if isinstance(value, dict):
+            return value
+        if not isinstance(value, str) or not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _first_nested_text(self, value, key: str) -> str:
+        if isinstance(value, dict):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                return item
+            for child in value.values():
+                found = self._first_nested_text(child, key)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                found = self._first_nested_text(child, key)
+                if found:
+                    return found
+        return ""
 
     @staticmethod
     def _prompt_title(data: dict) -> str:

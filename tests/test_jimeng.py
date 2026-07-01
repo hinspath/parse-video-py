@@ -104,6 +104,42 @@ def test_item_title_falls_back_to_clean_description():
     )
 
 
+def test_image_title_prefers_prompt_over_common_title():
+    parser = Jimeng()
+
+    data = {
+        "common_attr": {"title": "创意设计"},
+        "aigc_image_params": {
+            "text2image_params": {"prompt": "日系校园摄影，白色衬衫，雨后街角"}
+        },
+    }
+
+    assert parser._image_title(data) == "日系校园摄影，白色衬衫，雨后街角"
+
+
+def test_image_title_can_fallback_to_draft_prompt():
+    parser = Jimeng()
+
+    data = {
+        "aigc_draft": {
+            "content": json.dumps(
+                {
+                    "component_list": [
+                        {
+                            "abilities": {
+                                "generate": {"core_param": {"prompt": "赛博城市夜景"}}
+                            }
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        }
+    }
+
+    assert parser._image_title(data) == "赛博城市夜景"
+
+
 def test_extract_image_urls_prefers_largest_clean_image_and_dedupes_cdn_hosts():
     parser = Jimeng()
     image_4096 = (
