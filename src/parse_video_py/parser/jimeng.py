@@ -139,7 +139,7 @@ class Jimeng(BaseParser):
     def _build_video_info(self, data: dict, preferred_url: str = "") -> VideoInfo:
         video = data.get("video") or {}
         common = data.get("common_attr") or {}
-        title = common.get("name") or self._prompt_title(data) or ""
+        title = self._item_title(data)
         cover_url = self._clean_url(
             video.get("cover_url") or common.get("cover_url") or ""
         )
@@ -172,7 +172,7 @@ class Jimeng(BaseParser):
 
     def _build_image_info(self, data: dict) -> VideoInfo:
         common = data.get("common_attr") or {}
-        title = common.get("name") or self._prompt_title(data) or ""
+        title = self._item_title(data)
         image_urls = self._extract_image_urls(data)
         if not image_urls:
             raise ValueError(self.NO_RESOURCE_MESSAGE)
@@ -489,6 +489,22 @@ class Jimeng(BaseParser):
     def _image_identity(url: str) -> str:
         parsed = urlparse(url)
         return (parsed.path or url).split("~", 1)[0]
+
+    def _item_title(self, data: dict) -> str:
+        common = data.get("common_attr") or {}
+        for key in ("title", "name", "description"):
+            title = self._clean_title(common.get(key) or "")
+            if title:
+                return title
+        return self._clean_title(self._prompt_title(data))
+
+    @staticmethod
+    def _clean_title(value: str) -> str:
+        if not isinstance(value, str):
+            return ""
+        title = re.sub(r"\s+", " ", value).strip()
+        title = re.sub(r"^@[\w\-\u4e00-\u9fff]+\s+", "", title)
+        return title
 
     @staticmethod
     def _prompt_title(data: dict) -> str:

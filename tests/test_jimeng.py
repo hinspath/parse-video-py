@@ -87,6 +87,23 @@ def test_build_video_info_raises_friendly_message_without_resource():
         parser._build_video_info({"effect_item_list": [], "dto_list": None})
 
 
+def test_item_title_prefers_common_title():
+    parser = Jimeng()
+
+    assert parser._item_title({"common_attr": {"title": "创意设计"}}) == "创意设计"
+
+
+def test_item_title_falls_back_to_clean_description():
+    parser = Jimeng()
+
+    assert (
+        parser._item_title(
+            {"common_attr": {"description": "@用户7497855289023 单片树叶雨天跳民族舞"}}
+        )
+        == "单片树叶雨天跳民族舞"
+    )
+
+
 def test_extract_image_urls_prefers_largest_clean_image_and_dedupes_cdn_hosts():
     parser = Jimeng()
     image_4096 = (
