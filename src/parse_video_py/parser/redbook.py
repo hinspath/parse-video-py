@@ -1,6 +1,5 @@
 import re
 
-import fake_useragent
 import httpx
 import yaml
 
@@ -12,30 +11,60 @@ class RedBook(BaseParser):
     小红书
     """
 
-    async def parse_share_url(self, share_url: str) -> VideoInfo:
-        headers = {
-            "User-Agent": fake_useragent.UserAgent(os=["windows"]).random,
-        }
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(share_url, headers=headers)
-            response.raise_for_status()
+    _USER_AGENTS = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) "
+        "Gecko/20100101 Firefox/123.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) "
+        "Gecko/20100101 Firefox/124.0",
+    )
 
+    async def parse_share_url(self, share_url: str) -> VideoInfo:
         pattern = re.compile(
             pattern=r"window\.__INITIAL_STATE__\s*=\s*(.*?)</script>",
             flags=re.DOTALL,
         )
-        find_res = pattern.search(response.text)
+        last_error = "小红书暂未返回笔记内容，请稍后重试或重新分享链接"
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            for user_agent in self._USER_AGENTS:
+                # Retry from the share URL without cookies set by a blocked page.
+                client.cookies.clear()
+                response = await client.get(
+                    share_url, headers={"User-Agent": user_agent}
+                )
+                if response.status_code in (401, 403, 429):
+                    last_error = "小红书暂时限制了访问，请稍后重试"
+                    continue
+                response.raise_for_status()
+                if response.url.path.rstrip("/") == "/login":
+                    last_error = "小红书要求登录后查看该笔记，请稍后重试或重新分享链接"
+                    continue
 
-        if not find_res or not find_res.group(1):
-            raise ValueError("parse video json info from html fail")
-
-        json_data = yaml.safe_load(find_res.group(1))
-
-        note_id = json_data["note"]["currentNoteId"]
-        # 验证返回：小红书的分享链接有有效期，过期后会返回 undefined
-        if note_id == "undefined":
-            raise Exception("parse fail: note id in response is undefined")
-        data = json_data["note"]["noteDetailMap"][note_id]["note"]
+                find_res = pattern.search(response.text)
+                if not find_res or not find_res.group(1):
+                    last_error = "未能获取小红书笔记数据，请稍后重试或重新分享链接"
+                    continue
+                try:
+                    json_data = yaml.safe_load(find_res.group(1))
+                except yaml.YAMLError:
+                    last_error = "小红书返回的笔记数据格式异常，请稍后重试"
+                    continue
+                note_state = (
+                    json_data.get("note") if isinstance(json_data, dict) else None
+                )
+                if not isinstance(note_state, dict):
+                    continue
+                note_id = note_state.get("currentNoteId")
+                if note_id == "undefined":
+                    raise ValueError("小红书分享链接已失效，请在小红书重新复制分享链接")
+                detail_map = note_state.get("noteDetailMap")
+                if not note_id or not isinstance(detail_map, dict):
+                    continue
+                detail = detail_map.get(note_id)
+                data = detail.get("note") if isinstance(detail, dict) else None
+                if isinstance(data, dict) and data:
+                    break
+            else:
+                raise ValueError(last_error)
 
         # 视频地址
         video_url = ""
