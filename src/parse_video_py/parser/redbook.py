@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 
 import httpx
 import yaml
@@ -16,6 +17,11 @@ class RedBook(BaseParser):
         "Gecko/20100101 Firefox/123.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) "
         "Gecko/20100101 Firefox/124.0",
+    )
+    _MOBILE_USER_AGENT = (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 "
+        "Mobile/15E148 Safari/604.1"
     )
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
@@ -66,11 +72,26 @@ class RedBook(BaseParser):
             else:
                 raise ValueError(last_error)
 
+            h264_data = [
+                stream
+                for stream in (
+                    data.get("video", {}).get("media", {}).get("stream", {}).get("h264")
+                    or []
+                )
+                if isinstance(stream, dict)
+            ]
+            # The mobile page can expose smaller streams absent from the desktop page.
+            if any(
+                self._positive_int(stream.get("size")) > 200 * 1024 * 1024
+                for stream in h264_data
+            ):
+                h264_data.extend(
+                    await self._mobile_video_streams(
+                        client, share_url, note_id, pattern
+                    )
+                )
+
         # 视频地址
-        h264_data = (
-            data.get("video", {}).get("media", {}).get("stream", {}).get("h264", [])
-            or []
-        )
         video_qualities = self._video_qualities(h264_data)
         video_url = video_qualities[0].url if video_qualities else ""
         duration = 0
@@ -136,6 +157,38 @@ class RedBook(BaseParser):
         )
         return video_info
 
+    async def _mobile_video_streams(
+        self,
+        client: httpx.AsyncClient,
+        share_url: str,
+        note_id: str,
+        pattern: re.Pattern,
+    ) -> list[dict]:
+        try:
+            client.cookies.clear()
+            response = await client.get(
+                share_url, headers={"User-Agent": self._MOBILE_USER_AGENT}
+            )
+            response.raise_for_status()
+            match = pattern.search(response.text)
+            if not match:
+                return []
+            state = yaml.safe_load(match.group(1))
+        except (httpx.HTTPError, yaml.YAMLError):
+            return []
+        if not isinstance(state, dict):
+            return []
+        store = state.get("noteData")
+        payload = store.get("data") if isinstance(store, dict) else None
+        note = payload.get("noteData") if isinstance(payload, dict) else None
+        if not isinstance(note, dict) or note.get("noteId") != note_id:
+            return []
+        video = note.get("video")
+        media = video.get("media") if isinstance(video, dict) else None
+        streams = media.get("stream") if isinstance(media, dict) else None
+        h264 = streams.get("h264") if isinstance(streams, dict) else None
+        return h264 if isinstance(h264, list) else []
+
     @staticmethod
     def _positive_int(value) -> int:
         try:
@@ -186,6 +239,10 @@ class RedBook(BaseParser):
             ),
             reverse=True,
         )
+        labels = Counter(item.label for item in qualities)
+        for quality in qualities:
+            if labels[quality.label] > 1 and quality.bit_rate:
+                quality.label += f" · {round(quality.bit_rate / 1000)}kbps"
         return qualities
 
     async def parse_video_id(self, video_id: str) -> VideoInfo:

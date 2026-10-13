@@ -254,3 +254,96 @@ def test_quality_metadata_handles_unknown_values():
     assert len(qualities) == 1
     assert qualities[0].label == "720P"
     assert qualities[0].size == 0
+
+
+def _mobile_html(streams, note_id="note-id"):
+    state = {
+        "noteData": {
+            "data": {
+                "noteData": {
+                    "noteId": note_id,
+                    "video": {"media": {"stream": {"h264": streams}}},
+                }
+            }
+        }
+    }
+    return "<script>window.__INITIAL_STATE__=" + json.dumps(state) + "</script>"
+
+
+@pytest.mark.asyncio
+async def test_large_desktop_video_adds_smaller_mobile_720p_stream(monkeypatch):
+    desktop = {
+        "masterUrl": VIDEO_URL,
+        "width": 1280,
+        "height": 720,
+        "size": 269528039,
+        "avgBitrate": 2501225,
+    }
+    mobile = {
+        "masterUrl": "https://sns-video.example.com/mobile.mp4",
+        "width": 1280,
+        "height": 720,
+        "size": 168731842,
+        "avgBitrate": 1565835,
+    }
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.headers["User-Agent"] == RedBook._MOBILE_USER_AGENT:
+            return httpx.Response(200, text=_mobile_html([mobile]))
+        return httpx.Response(200, text=_note_html(streams=[desktop]))
+
+    _mock_client(monkeypatch, handler)
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert len(requests) == 2
+    assert info.video_url == VIDEO_URL
+    assert [quality.size for quality in info.video_urls] == [269528039, 168731842]
+    assert info.video_urls[1].url == mobile["masterUrl"]
+    assert info.video_urls[1].label == "720P · 1566kbps"
+    assert info.video_urls[1].size < 200 * 1024 * 1024
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mobile_response", ["unavailable", "other-note", "malformed", "empty-video"]
+)
+async def test_mobile_lookup_failure_keeps_valid_desktop_resource(
+    monkeypatch, mobile_response
+):
+    desktop = {"masterUrl": VIDEO_URL, "width": 1280, "height": 720, "size": 269528039}
+
+    def handler(request):
+        if request.headers["User-Agent"] != RedBook._MOBILE_USER_AGENT:
+            return httpx.Response(200, text=_note_html(streams=[desktop]))
+        if mobile_response == "unavailable":
+            return httpx.Response(403)
+        if mobile_response == "malformed":
+            return httpx.Response(
+                200, text="<script>window.__INITIAL_STATE__={invalid</script>"
+            )
+        if mobile_response == "empty-video":
+            return httpx.Response(
+                200,
+                text='<script>window.__INITIAL_STATE__={"noteData":{"data":{"noteData":{"noteId":"note-id","video":null}}}}</script>',
+            )
+        return httpx.Response(
+            200,
+            text=_mobile_html(
+                [
+                    {
+                        "masterUrl": "https://sns-video.example.com/wrong-note.mp4",
+                        "size": 10000000,
+                    }
+                ],
+                note_id="different-note",
+            ),
+        )
+
+    _mock_client(monkeypatch, handler)
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert info.video_url == VIDEO_URL
+    assert len(info.video_urls) == 1
+    assert info.size == 269528039
