@@ -1,5 +1,6 @@
 import re
 from collections import Counter
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -72,7 +73,7 @@ class RedBook(BaseParser):
             else:
                 raise ValueError(last_error)
 
-            h264_data = [
+            video_streams = [
                 stream
                 for stream in (
                     data.get("video", {}).get("media", {}).get("stream", {}).get("h264")
@@ -83,23 +84,27 @@ class RedBook(BaseParser):
             # The mobile page can expose smaller streams absent from the desktop page.
             if any(
                 self._positive_int(stream.get("size")) > 200 * 1024 * 1024
-                for stream in h264_data
-            ):
-                h264_data.extend(
+                for stream in video_streams
+            ) or any(self._is_watermarked_stream(stream) for stream in video_streams):
+                video_streams.extend(
                     await self._mobile_video_streams(
                         client, share_url, note_id, pattern
                     )
                 )
 
         # 视频地址
-        video_qualities = self._video_qualities(h264_data)
+        video_qualities = self._video_qualities(video_streams)
+        if data.get("type") == "video" and not video_qualities:
+            raise ValueError(
+                "暂未获取到小红书无平台水印的视频资源，请稍后重试或重新分享链接"
+            )
         video_url = video_qualities[0].url if video_qualities else ""
         duration = 0
         if video_url:
             stream = next(
                 (
                     item
-                    for item in h264_data
+                    for item in video_streams
                     if isinstance(item, dict) and item.get("masterUrl") == video_url
                 ),
                 {},
@@ -186,8 +191,37 @@ class RedBook(BaseParser):
         video = note.get("video")
         media = video.get("media") if isinstance(video, dict) else None
         streams = media.get("stream") if isinstance(media, dict) else None
-        h264 = streams.get("h264") if isinstance(streams, dict) else None
-        return h264 if isinstance(h264, list) else []
+        if not isinstance(streams, dict):
+            return []
+        result = []
+        for codec in ("h264", "h265"):
+            entries = streams.get(codec)
+            if not isinstance(entries, list):
+                continue
+            result.extend(
+                {**stream, "videoCodec": stream.get("videoCodec") or codec}
+                for stream in entries
+                if isinstance(stream, dict)
+            )
+        return result
+
+    @classmethod
+    def _is_watermarked_stream(cls, stream: dict) -> bool:
+        stream_type = cls._positive_int(
+            stream.get("streamType") or stream.get("stream_type")
+        )
+        description = str(
+            stream.get("streamDesc") or stream.get("stream_desc") or ""
+        ).upper()
+        url = stream.get("masterUrl")
+        path = urlparse(url if isinstance(url, str) else "").path
+        # MINI_APP_259 burns the platform logo and author into the video frames.
+        return (
+            stream_type == 259
+            or description.startswith("MINI_APP")
+            or "/259/" in path
+            or path.endswith("_259.mp4")
+        )
 
     @staticmethod
     def _positive_int(value) -> int:
@@ -206,6 +240,13 @@ class RedBook(BaseParser):
             url = stream.get("masterUrl")
             if not isinstance(url, str) or not url or url in seen:
                 continue
+            if cls._is_watermarked_stream(stream):
+                continue
+            codec = str(stream.get("videoCodec") or "h264").lower()
+            if codec == "hevc":
+                codec = "h265"
+            if codec not in {"h264", "h265"}:
+                continue
             seen.add(url)
             width = cls._positive_int(stream.get("width"))
             height = cls._positive_int(stream.get("height"))
@@ -215,6 +256,8 @@ class RedBook(BaseParser):
                 if resolution
                 else str(stream.get("qualityType") or "默认")
             )
+            if codec == "h265":
+                label += " · H.265"
             qualities.append(
                 VideoQuality(
                     label=label,
@@ -226,10 +269,12 @@ class RedBook(BaseParser):
                     width=width,
                     height=height,
                     size=cls._positive_int(stream.get("size")),
+                    codec=codec,
                 )
             )
         qualities.sort(
             key=lambda item: (
+                item.codec == "h264",
                 (
                     min(item.width, item.height)
                     if item.width and item.height

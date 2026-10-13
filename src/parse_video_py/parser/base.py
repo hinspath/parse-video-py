@@ -98,6 +98,9 @@ class VideoQuality:
     # 文件大小，单位：字节；0 表示未知
     size: int = 0
 
+    # 视频编码，例如 h264 / h265；空字符串表示未知
+    codec: str = ""
+
 
 @dataclasses.dataclass
 class VideoInfo:

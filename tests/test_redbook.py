@@ -12,6 +12,7 @@ VIDEO_URL = "https://sns-video.example.com/video.mp4"
 
 def _note_html(*, images=False, streams=None):
     data = {
+        "type": "normal" if images else "video",
         "title": "Test note",
         "user": {"userId": "author-id", "nickname": "Author", "avatar": ""},
         "imageList": [
@@ -256,13 +257,17 @@ def test_quality_metadata_handles_unknown_values():
     assert qualities[0].size == 0
 
 
-def _mobile_html(streams, note_id="note-id"):
+def _mobile_html(streams, note_id="note-id", h265_streams=None):
     state = {
         "noteData": {
             "data": {
                 "noteData": {
                     "noteId": note_id,
-                    "video": {"media": {"stream": {"h264": streams}}},
+                    "video": {
+                        "media": {
+                            "stream": {"h264": streams, "h265": h265_streams or []}
+                        }
+                    },
                 }
             }
         }
@@ -347,3 +352,106 @@ async def test_mobile_lookup_failure_keeps_valid_desktop_resource(
     assert info.video_url == VIDEO_URL
     assert len(info.video_urls) == 1
     assert info.size == 269528039
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        {"streamType": 259},
+        {"streamDesc": "MINI_APP_259"},
+        {"masterUrl": "https://sns-video.example.com/stream/79/110/259/video_259.mp4"},
+    ],
+)
+def test_watermarked_mobile_stream_is_excluded(marker):
+    stream = {
+        "masterUrl": VIDEO_URL,
+        "width": 1280,
+        "height": 720,
+        "size": 168731842,
+        **marker,
+    }
+
+    assert RedBook._video_qualities([stream]) == []
+
+
+@pytest.mark.asyncio
+async def test_mobile_watermarked_h264_is_replaced_by_clean_h265(monkeypatch):
+    desktop = {
+        "masterUrl": VIDEO_URL,
+        "width": 1280,
+        "height": 720,
+        "size": 269528039,
+        "avgBitrate": 2501225,
+        "videoCodec": "h264",
+    }
+    watermarked = {
+        "masterUrl": "https://sns-video.example.com/watermarked.mp4",
+        "streamType": 259,
+        "streamDesc": "MINI_APP_259",
+        "width": 1280,
+        "height": 720,
+        "size": 168731842,
+        "avgBitrate": 1565835,
+    }
+    clean = {
+        "masterUrl": "https://sns-video.example.com/clean-hevc.mp4",
+        "streamType": 309,
+        "streamDesc": "X265_MP4_WEB_309_h5",
+        "videoCodec": "hevc",
+        "width": 1280,
+        "height": 720,
+        "size": 113030402,
+        "avgBitrate": 1048924,
+    }
+
+    def handler(request):
+        if request.headers["User-Agent"] == RedBook._MOBILE_USER_AGENT:
+            return httpx.Response(
+                200, text=_mobile_html([watermarked], h265_streams=[clean])
+            )
+        return httpx.Response(200, text=_note_html(streams=[desktop]))
+
+    _mock_client(monkeypatch, handler)
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert info.video_url == VIDEO_URL
+    assert [quality.size for quality in info.video_urls] == [269528039, 113030402]
+    assert [quality.codec for quality in info.video_urls] == ["h264", "h265"]
+    assert info.video_urls[1].label == "720P · H.265"
+    assert info.video_urls[1].url == clean["masterUrl"]
+
+
+def test_default_preview_prefers_h264_over_h265():
+    qualities = RedBook._video_qualities(
+        [
+            {
+                "masterUrl": "https://sns-video.example.com/hevc.mp4",
+                "width": 1920,
+                "height": 1080,
+                "videoCodec": "hevc",
+            },
+            {
+                "masterUrl": VIDEO_URL,
+                "width": 1280,
+                "height": 720,
+                "videoCodec": "h264",
+            },
+        ]
+    )
+
+    assert qualities[0].url == VIDEO_URL
+    assert qualities[1].codec == "h265"
+
+
+@pytest.mark.asyncio
+async def test_only_watermarked_resource_returns_a_friendly_error(monkeypatch):
+    watermarked = {"masterUrl": VIDEO_URL, "streamType": 259, "size": 168731842}
+
+    def handler(request):
+        if request.headers["User-Agent"] == RedBook._MOBILE_USER_AGENT:
+            return httpx.Response(403)
+        return httpx.Response(200, text=_note_html(streams=[watermarked]))
+
+    _mock_client(monkeypatch, handler)
+    with pytest.raises(ValueError, match="无平台水印"):
+        await RedBook().parse_share_url(SHARE_URL)
