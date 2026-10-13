@@ -10,7 +10,7 @@ NOTE_URL = "https://www.xiaohongshu.com/discovery/item/note-id?xsec_token=share-
 VIDEO_URL = "https://sns-video.example.com/video.mp4"
 
 
-def _note_html(*, images=False):
+def _note_html(*, images=False, streams=None):
     data = {
         "title": "Test note",
         "user": {"userId": "author-id", "nickname": "Author", "avatar": ""},
@@ -23,7 +23,16 @@ def _note_html(*, images=False):
         ],
     }
     if not images:
-        data["video"] = {"media": {"stream": {"h264": [{"masterUrl": VIDEO_URL}]}}}
+        data["video"] = {
+            "media": {
+                "stream": {
+                    "h264": (
+                        streams if streams is not None else [{"masterUrl": VIDEO_URL}]
+                    )
+                }
+            },
+            "capa": {"duration": 862},
+        }
     state = {
         "note": {
             "currentNoteId": "note-id",
@@ -170,3 +179,78 @@ async def test_expired_share_link_has_friendly_error(monkeypatch):
     )
     with pytest.raises(ValueError, match="分享链接已失效"):
         await RedBook().parse_share_url(SHARE_URL)
+
+
+@pytest.mark.asyncio
+async def test_video_exposes_720p_size_and_duration(monkeypatch):
+    streams = [
+        {
+            "masterUrl": VIDEO_URL,
+            "width": 1280,
+            "height": 720,
+            "avgBitrate": 2501225,
+            "size": 269528039,
+            "duration": 862067,
+            "qualityType": "HD",
+        }
+    ]
+    _mock_client(
+        monkeypatch,
+        lambda request: httpx.Response(200, text=_note_html(streams=streams)),
+    )
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert info.video_url == VIDEO_URL
+    assert info.duration == 862067
+    assert info.size == 269528039
+    assert len(info.video_urls) == 1
+    assert info.video_urls[0].label == "720P"
+    assert info.video_urls[0].size == 269528039
+    assert info.video_urls[0].bit_rate == 2501225
+
+
+@pytest.mark.asyncio
+async def test_all_h264_qualities_are_sorted_and_retained(monkeypatch):
+    smaller = {
+        "masterUrl": "https://sns-video.example.com/720.mp4",
+        "width": 720,
+        "height": 1280,
+        "size": 100000000,
+    }
+    larger = {
+        "masterUrl": VIDEO_URL,
+        "width": 1920,
+        "height": 1080,
+        "size": 400000000,
+    }
+    _mock_client(
+        monkeypatch,
+        lambda request: httpx.Response(
+            200, text=_note_html(streams=[smaller, larger, smaller, {}])
+        ),
+    )
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert [quality.label for quality in info.video_urls] == ["1080P", "720P"]
+    assert [quality.size for quality in info.video_urls] == [400000000, 100000000]
+    assert info.video_url == VIDEO_URL
+    assert info.duration == 862000
+
+
+def test_quality_metadata_handles_unknown_values():
+    qualities = RedBook._video_qualities(
+        [
+            None,
+            {
+                "masterUrl": VIDEO_URL,
+                "width": "720",
+                "height": "1280",
+                "size": "invalid",
+                "avgBitrate": None,
+            },
+        ]
+    )
+
+    assert len(qualities) == 1
+    assert qualities[0].label == "720P"
+    assert qualities[0].size == 0

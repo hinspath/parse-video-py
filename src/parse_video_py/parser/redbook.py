@@ -3,7 +3,7 @@ import re
 import httpx
 import yaml
 
-from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo
+from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo, VideoQuality
 
 
 class RedBook(BaseParser):
@@ -67,12 +67,31 @@ class RedBook(BaseParser):
                 raise ValueError(last_error)
 
         # 视频地址
-        video_url = ""
         h264_data = (
             data.get("video", {}).get("media", {}).get("stream", {}).get("h264", [])
+            or []
         )
-        if len(h264_data) > 0:
-            video_url = h264_data[0].get("masterUrl", "")
+        video_qualities = self._video_qualities(h264_data)
+        video_url = video_qualities[0].url if video_qualities else ""
+        duration = 0
+        if video_url:
+            stream = next(
+                (
+                    item
+                    for item in h264_data
+                    if isinstance(item, dict) and item.get("masterUrl") == video_url
+                ),
+                {},
+            )
+            duration = (
+                self._positive_int(
+                    stream.get("duration") or stream.get("videoDuration")
+                )
+                or self._positive_int(
+                    data.get("video", {}).get("capa", {}).get("duration")
+                )
+                * 1000
+            )
 
         # 获取图集图片地址
         images = []
@@ -106,6 +125,9 @@ class RedBook(BaseParser):
             cover_url=data["imageList"][0]["urlDefault"],
             title=data["title"],
             images=images,
+            video_urls=video_qualities,
+            duration=duration,
+            size=video_qualities[0].size if video_qualities else 0,
             author=VideoAuthor(
                 uid=data["user"]["userId"],
                 name=data["user"]["nickname"],
@@ -113,6 +135,58 @@ class RedBook(BaseParser):
             ),
         )
         return video_info
+
+    @staticmethod
+    def _positive_int(value) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    @classmethod
+    def _video_qualities(cls, streams: list) -> list[VideoQuality]:
+        qualities = []
+        seen = set()
+        for stream in streams:
+            if not isinstance(stream, dict):
+                continue
+            url = stream.get("masterUrl")
+            if not isinstance(url, str) or not url or url in seen:
+                continue
+            seen.add(url)
+            width = cls._positive_int(stream.get("width"))
+            height = cls._positive_int(stream.get("height"))
+            resolution = min(width, height) if width and height else width or height
+            label = (
+                f"{resolution}P"
+                if resolution
+                else str(stream.get("qualityType") or "默认")
+            )
+            qualities.append(
+                VideoQuality(
+                    label=label,
+                    url=url,
+                    gear_name=str(stream.get("qualityType") or ""),
+                    bit_rate=cls._positive_int(
+                        stream.get("avgBitrate") or stream.get("videoBitrate")
+                    ),
+                    width=width,
+                    height=height,
+                    size=cls._positive_int(stream.get("size")),
+                )
+            )
+        qualities.sort(
+            key=lambda item: (
+                (
+                    min(item.width, item.height)
+                    if item.width and item.height
+                    else item.width or item.height
+                ),
+                item.bit_rate,
+            ),
+            reverse=True,
+        )
+        return qualities
 
     async def parse_video_id(self, video_id: str) -> VideoInfo:
         raise NotImplementedError("小红书暂不支持直接解析视频ID")

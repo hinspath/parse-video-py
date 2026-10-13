@@ -95,6 +95,9 @@ class VideoQuality:
     # 高度
     height: int = 0
 
+    # 文件大小，单位：字节；0 表示未知
+    size: int = 0
+
 
 @dataclasses.dataclass
 class VideoInfo:
@@ -122,6 +125,12 @@ class VideoInfo:
 
     # 可选清晰度列表
     video_urls: List[VideoQuality] = dataclasses.field(default_factory=list)
+
+    # 视频时长，单位：毫秒；0 表示未知
+    duration: int = 0
+
+    # 主视频文件大小，单位：字节；0 表示未知
+    size: int = 0
 
 
 class BaseParser(ABC):
