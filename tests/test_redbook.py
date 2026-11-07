@@ -455,3 +455,111 @@ async def test_only_watermarked_resource_returns_a_friendly_error(monkeypatch):
     _mock_client(monkeypatch, handler)
     with pytest.raises(ValueError, match="无平台水印"):
         await RedBook().parse_share_url(SHARE_URL)
+
+
+@pytest.mark.asyncio
+async def test_desktop_javascript_state_falls_back_to_mobile_live_photo(monkeypatch):
+    note = {
+        "noteId": "note-id",
+        "type": "normal",
+        "title": "Mobile Live Photo",
+        "user": {"userId": "author-id", "nickName": "Mobile author", "avatar": ""},
+        "imageList": [
+            {
+                "url": "https://sns-img.example.com/notes_pre_post/image-id!webp",
+                "livePhoto": True,
+                "stream": {"h264": [{"masterUrl": VIDEO_URL}]},
+            }
+        ],
+    }
+    state = {"noteData": {"data": {"noteData": note}}}
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.headers["User-Agent"] != RedBook._MOBILE_USER_AGENT:
+            return httpx.Response(
+                200,
+                text='<script>window.__INITIAL_STATE__={"ids":new Set([])}</script>',
+            )
+        return httpx.Response(
+            200,
+            text="<script>window.__INITIAL_STATE__=" + json.dumps(state) + "</script>",
+        )
+
+    _mock_client(monkeypatch, handler)
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert len(requests) == 2
+    assert info.title == "Mobile Live Photo"
+    assert info.author.name == "Mobile author"
+    assert info.cover_url == note["imageList"][0]["url"]
+    assert info.images[0].live_photo_url == VIDEO_URL
+    assert info.images[0].url.endswith("image-id?imageView2/format/jpg")
+
+
+@pytest.mark.asyncio
+async def test_mobile_fallback_keeps_clean_quality_without_duplicate_fetch(monkeypatch):
+    requests = []
+    clean = {
+        "masterUrl": "https://sns-video.example.com/clean.mp4",
+        "streamType": 309,
+        "size": 113030402,
+        "width": 1280,
+        "height": 720,
+    }
+    watermarked = {"masterUrl": VIDEO_URL, "streamType": 259, "size": 168731842}
+
+    def handler(request):
+        requests.append(request)
+        if request.headers["User-Agent"] != RedBook._MOBILE_USER_AGENT:
+            return httpx.Response(200, text="<html>No note data</html>")
+        return httpx.Response(
+            200, text=_mobile_html([watermarked], h265_streams=[clean])
+        )
+
+    _mock_client(monkeypatch, handler)
+    info = await RedBook().parse_share_url(SHARE_URL)
+
+    assert len(requests) == 2
+    assert len(info.video_urls) == 1
+    assert info.video_url == clean["masterUrl"]
+    assert info.video_urls[0].codec == "h265"
+    assert info.video_urls[0].size == 113030402
+
+
+def test_desktop_state_keeps_both_clean_codecs():
+    note = {
+        "video": {
+            "media": {
+                "stream": {
+                    "h264": [{"masterUrl": VIDEO_URL}],
+                    "h265": [
+                        {"masterUrl": "https://sns-video.example.com/clean-hevc.mp4"}
+                    ],
+                }
+            }
+        }
+    }
+    qualities = RedBook._video_qualities(RedBook._get_video_streams(note))
+    assert [quality.codec for quality in qualities] == ["h264", "h265"]
+
+
+@pytest.mark.asyncio
+async def test_desktop_note_survives_unrelated_set_without_evaluating_js(monkeypatch):
+    requests = []
+    html = _note_html().replace(
+        '"note": {',
+        '"translate":{"ids":new Set([]),"label":"new Set([])"},"note": {',
+        1,
+    )
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=html)
+
+    _mock_client(monkeypatch, handler)
+    info = await RedBook().parse_share_url(SHARE_URL)
+    assert len(requests) == 1
+    assert info.video_url == VIDEO_URL
+    assert info.title == "Test note"

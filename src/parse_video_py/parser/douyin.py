@@ -208,24 +208,21 @@ if (signature) {
             try:
                 return await self._parse_with_aweme_detail_api(video_id, active_cookie)
             except Exception as err:
-                # Cookie / 签名 API 偶发失效时，继续使用作者新版 HTML 兜底逻辑。
-                print(f"[DouYin] Mode A failed, fallback to HTML: {err}")
+                # Cookie / 签名 API 失效时，保留原有 Cookie 优先级并使用分享接口兜底。
+                print(f"[DouYin] Mode A failed, fallback to share API: {err}")
                 pass
 
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(share_url, headers=self.get_mobile_headers())
-            response.raise_for_status()
-
-        # 检查是否是图集内容
-        is_note = self._is_note_content(response.text, share_url)
-
-        json_data = None
-        if is_note:
-            # 如果是图集，使用专门的API获取数据
-            json_data = await self._get_slides_info(video_id)
+        # 分享接口同时支持普通视频和图文，不依赖页面 SSR 的 videoInfoRes。
+        json_data = await self._get_slides_info(video_id)
 
         if not json_data:
-            # 如果专用API失败或者不是图集，使用标准解析方式
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.get(
+                    share_url, headers=self.get_mobile_headers()
+                )
+                response.raise_for_status()
+
+            # 分享接口不可用时保留旧版 HTML 兜底。
             pattern = re.compile(
                 pattern=r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
                 flags=re.DOTALL,
@@ -248,24 +245,20 @@ if (signature) {
             VIDEO_ID_PAGE_KEY = "video_(id)/page"
             NOTE_ID_PAGE_KEY = "note_(id)/page"
 
-            original_video_info = None
-            if VIDEO_ID_PAGE_KEY in json_data["loaderData"]:
-                original_video_info = json_data["loaderData"][VIDEO_ID_PAGE_KEY][
-                    "videoInfoRes"
-                ]
-            elif NOTE_ID_PAGE_KEY in json_data["loaderData"]:
-                original_video_info = json_data["loaderData"][NOTE_ID_PAGE_KEY][
-                    "videoInfoRes"
-                ]
-            else:
-                raise Exception(
-                    "failed to parse Videos or Photo Gallery info from json"
-                )
+            loader_data = json_data["loaderData"] or {}
+            page_data = (
+                loader_data.get(VIDEO_ID_PAGE_KEY)
+                or loader_data.get(NOTE_ID_PAGE_KEY)
+                or {}
+            )
+            original_video_info = page_data.get("videoInfoRes")
+            if not isinstance(original_video_info, dict):
+                raise ValueError("抖音暂未返回作品数据，请稍后重试或重新分享链接")
 
             # 如果没有视频信息，获取并抛出异常
-            if len(original_video_info["item_list"]) == 0:
+            if not original_video_info.get("item_list"):
                 err_detail_msg = "failed to parse video info from HTML"
-                if len(filter_list := original_video_info["filter_list"]) > 0:
+                if filter_list := original_video_info.get("filter_list"):
                     err_detail_msg = filter_list[0]["detail_msg"]
                 raise Exception(err_detail_msg)
 
@@ -714,31 +707,24 @@ if (signature) {
         return False
 
     async def _get_slides_info(self, video_id: str) -> dict:
-        """获取图集的详细信息，包括Live Photo"""
-        try:
-            # 生成web_id和a_bogus参数
-            web_id = "75" + self._generate_fixed_length_numeric_id(15)
-            a_bogus = self._rand_seq(64)
-
-            api_url = (
-                f"https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
-                f"?reflow_source=reflow_page"
-                f"&web_id={web_id}"
-                f"&device_id={web_id}"
-                f"&aweme_ids=%5B{video_id}%5D"
-                f"&request_source=200"
-                f"&a_bogus={a_bogus}"
-            )
-
-            async with httpx.AsyncClient() as client:
-                response = await client.get(api_url, headers=self.get_mobile_headers())
-                response.raise_for_status()
-
-            data = response.json()
-            return data if data.get("aweme_details") else None
-
-        except Exception:
-            return None
+        """获取视频或图集详情，保留原有 Live Photo 数据。"""
+        api_url = "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
+        async with httpx.AsyncClient() as client:
+            # 普通视频使用默认参数；图文需兼容 request_source=200。
+            for extra_params in ({}, {"request_source": "200"}):
+                try:
+                    response = await client.get(
+                        api_url,
+                        params={"aweme_ids": f"[{video_id}]", **extra_params},
+                        headers=self.get_mobile_headers(),
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                except Exception:
+                    continue
+                if isinstance(data, dict) and data.get("aweme_details"):
+                    return data
+        return None
 
     def _generate_fixed_length_numeric_id(self, length: int) -> str:
         """生成固定位数的随机数字ID"""

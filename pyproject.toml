@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
     "aiohttp>=3.9",
+    "chompjs>=1.4.1,<2",
     "fake-useragent>=1.5",
     "lxml>=5.0",
     "parsel>=1.9",

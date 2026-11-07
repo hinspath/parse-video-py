@@ -243,6 +243,8 @@ cd /var/www/douyin
 
 安装 Python 依赖：
 
+小红书页面数据解析依赖 `chompjs`。若 ARM/Linux 环境安装时提示缺少 `Python.h`，先运行 `apt install -y python3-dev build-essential`，再执行下面的安装命令。
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate

@@ -1,4 +1,10 @@
-from parse_video_py.parser.base import ImgInfo, VideoQuality
+import json
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+
+from parse_video_py.parser.base import ImgInfo, VideoInfo, VideoQuality
 from parse_video_py.parser.douyin import DouYin
 
 
@@ -202,3 +208,147 @@ def test_aweme_detail_image_post_info_preserves_live_photo_data():
             live_photo_url="https://example.com/play/live.mp4",
         )
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_cookie", ["", "user-cookie"])
+async def test_cookie_api_remains_first_and_keeps_request_cookie_priority(
+    monkeypatch, request_cookie
+):
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.GLOBAL_DY_COOKIE", "global-cookie"
+    )
+    parser = DouYin()
+    expected = VideoInfo(video_url="https://example.com/video.mp4", cover_url="")
+    detail_api = AsyncMock(return_value=expected)
+    slides_api = AsyncMock(side_effect=AssertionError("Cookie API must stay first"))
+    monkeypatch.setattr(parser, "_parse_with_aweme_detail_api", detail_api)
+    monkeypatch.setattr(parser, "_get_slides_info", slides_api)
+    token = parser.set_request_cookie(request_cookie)
+    try:
+        assert (
+            await parser.parse_share_url("https://www.douyin.com/video/123") is expected
+        )
+    finally:
+        parser.reset_request_cookie(token)
+    detail_api.assert_awaited_once_with("123", request_cookie or "global-cookie")
+    slides_api.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("live_photo", [False, True])
+async def test_failed_cookie_api_uses_share_api_and_preserves_media(
+    monkeypatch, live_photo
+):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "existing-cookie")
+    monkeypatch.setattr(
+        parser,
+        "_parse_with_aweme_detail_api",
+        AsyncMock(side_effect=ValueError("blocked")),
+    )
+    detail = {
+        "desc": "Share API result",
+        "video": {
+            "play_addr": {"url_list": ["https://example.com/playwm/video.mp4"]},
+            "cover": {"url_list": ["https://example.com/cover.jpg"]},
+            "bit_rate": [
+                {
+                    "gear_name": "normal_720_0",
+                    "bit_rate": 1000000,
+                    "play_addr": {"url_list": ["https://example.com/playwm/720.mp4"]},
+                }
+            ],
+        },
+    }
+    if live_photo:
+        detail["images"] = [
+            {
+                "url_list": ["https://example.com/photo.jpg"],
+                "video": {
+                    "play_addr": {
+                        "url_list": [
+                            "https://example.com/playwm/live-low.mp4",
+                            "https://example.com/playwm/live-high.mp4",
+                        ]
+                    }
+                },
+            }
+        ]
+    slides_api = AsyncMock(return_value={"aweme_details": [detail]})
+    redirect = AsyncMock(side_effect=lambda url: url)
+    monkeypatch.setattr(parser, "_get_slides_info", slides_api)
+    monkeypatch.setattr(parser, "get_video_redirect_url", redirect)
+
+    info = await parser.parse_share_url("https://www.douyin.com/video/123")
+
+    slides_api.assert_awaited_once_with("123")
+    assert info.title == "Share API result"
+    if live_photo:
+        assert info.video_url == ""
+        assert info.images == [
+            ImgInfo(
+                url="https://example.com/photo.jpg",
+                live_photo_url="https://example.com/play/live-high.mp4",
+            )
+        ]
+        redirect.assert_not_awaited()
+    else:
+        assert info.video_url == "https://example.com/play/720.mp4"
+        assert info.video_urls[0].height == 720
+        assert info.video_urls[0].bit_rate == 1000000
+        redirect.assert_awaited_once_with(info.video_url)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("note", [False, True])
+async def test_share_api_uses_video_then_note_parameters(monkeypatch, note):
+    requests = []
+    expected = {"aweme_details": [{"desc": "test"}]}
+
+    def handler(request):
+        requests.append(request)
+        assert request.url.path == "/web/api/v2/aweme/slidesinfo/"
+        assert request.url.params["aweme_ids"] == "[123]"
+        if note and "request_source" not in request.url.params:
+            return httpx.Response(200, json={"aweme_details": []})
+        return httpx.Response(200, json=expected)
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    assert await DouYin()._get_slides_info("123") == expected
+    assert dict(requests[0].url.params) == {"aweme_ids": "[123]"}
+    assert len(requests) == (2 if note else 1)
+    if note:
+        assert dict(requests[1].url.params) == {
+            "aweme_ids": "[123]",
+            "request_source": "200",
+        }
+
+
+@pytest.mark.asyncio
+async def test_missing_video_info_has_friendly_error(monkeypatch):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value=None))
+    state = {"loaderData": {"video_(id)/page": {"isSSR": False}}}
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    text="<script>window._ROUTER_DATA="
+                    + json.dumps(state)
+                    + "</script>",
+                )
+            ),
+            **kwargs,
+        ),
+    )
+    with pytest.raises(ValueError, match="抖音暂未返回作品数据"):
+        await parser.parse_share_url("https://www.douyin.com/video/123")

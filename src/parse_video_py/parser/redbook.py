@@ -2,8 +2,8 @@ import re
 from collections import Counter
 from urllib.parse import urlparse
 
+import chompjs
 import httpx
-import yaml
 
 from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo, VideoQuality
 
@@ -13,16 +13,15 @@ class RedBook(BaseParser):
     小红书
     """
 
-    _USER_AGENTS = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) "
-        "Gecko/20100101 Firefox/123.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) "
-        "Gecko/20100101 Firefox/124.0",
-    )
     _MOBILE_USER_AGENT = (
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 "
         "Mobile/15E148 Safari/604.1"
+    )
+    _USER_AGENTS = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) "
+        "Gecko/20100101 Firefox/123.0",
+        _MOBILE_USER_AGENT,
     )
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
@@ -51,41 +50,25 @@ class RedBook(BaseParser):
                     last_error = "未能获取小红书笔记数据，请稍后重试或重新分享链接"
                     continue
                 try:
-                    json_data = yaml.safe_load(find_res.group(1))
-                except yaml.YAMLError:
+                    json_data = chompjs.parse_js_object(find_res.group(1))
+                except ValueError:
                     last_error = "小红书返回的笔记数据格式异常，请稍后重试"
                     continue
-                note_state = (
-                    json_data.get("note") if isinstance(json_data, dict) else None
-                )
-                if not isinstance(note_state, dict):
-                    continue
-                note_id = note_state.get("currentNoteId")
-                if note_id == "undefined":
-                    raise ValueError("小红书分享链接已失效，请在小红书重新复制分享链接")
-                detail_map = note_state.get("noteDetailMap")
-                if not note_id or not isinstance(detail_map, dict):
-                    continue
-                detail = detail_map.get(note_id)
-                data = detail.get("note") if isinstance(detail, dict) else None
-                if isinstance(data, dict) and data:
+                data, note_id = self._note_data(json_data)
+                if data:
                     break
             else:
                 raise ValueError(last_error)
 
-            video_streams = [
-                stream
-                for stream in (
-                    data.get("video", {}).get("media", {}).get("stream", {}).get("h264")
-                    or []
-                )
-                if isinstance(stream, dict)
-            ]
+            video_streams = self._get_video_streams(data)
             # The mobile page can expose smaller streams absent from the desktop page.
-            if any(
-                self._positive_int(stream.get("size")) > 200 * 1024 * 1024
-                for stream in video_streams
-            ) or any(self._is_watermarked_stream(stream) for stream in video_streams):
+            if user_agent != self._MOBILE_USER_AGENT and (
+                any(
+                    self._positive_int(stream.get("size")) > 200 * 1024 * 1024
+                    for stream in video_streams
+                )
+                or any(self._is_watermarked_stream(stream) for stream in video_streams)
+            ):
                 video_streams.extend(
                     await self._mobile_video_streams(
                         client, share_url, note_id, pattern
@@ -121,14 +104,16 @@ class RedBook(BaseParser):
 
         # 获取图集图片地址
         images = []
+        image_list = data.get("imageList") or []
         if len(video_url) <= 0:
-            for img_item in data["imageList"]:
+            for img_item in image_list:
+                image_url = img_item.get("urlDefault") or img_item.get("url") or ""
+                if not image_url:
+                    continue
                 # 个别图片有水印, 替换图片域名
-                image_id = img_item["urlDefault"].split("/")[-1].split("!")[0]
+                image_id = image_url.split("/")[-1].split("!")[0]
                 # 如果链接中带有 spectrum/ , 替换域名时需要带上
-                spectrum_str = (
-                    "spectrum/" if "spectrum" in img_item["urlDefault"] else ""
-                )
+                spectrum_str = "spectrum/" if "spectrum" in image_url else ""
                 new_url = (
                     "https://ci.xiaohongshu.com/notes_pre_post/"
                     + f"{spectrum_str}{image_id}"
@@ -136,9 +121,9 @@ class RedBook(BaseParser):
                 )
                 img_info = ImgInfo(url=new_url)
                 # 如果原图片网址中没有 notes_pre_post 关键字，不支持替换域名，使用原域名
-                if "notes_pre_post" not in img_item["urlDefault"]:
-                    new_url = img_item["urlDefault"]
-                    img_info.url = img_item["urlDefault"]
+                if "notes_pre_post" not in image_url:
+                    new_url = image_url
+                    img_info.url = image_url
                 # 是否有 livephoto 视频地址
                 if img_item.get("livePhoto", False) and (
                     h264_data := img_item.get("stream", {}).get("h264", [])
@@ -146,21 +131,65 @@ class RedBook(BaseParser):
                     img_info.live_photo_url = h264_data[0]["masterUrl"]
                 images.append(img_info)
 
+        user = data.get("user") or {}
         video_info = VideoInfo(
             video_url=video_url,
-            cover_url=data["imageList"][0]["urlDefault"],
-            title=data["title"],
+            cover_url=(
+                (image_list[0].get("urlDefault") or image_list[0].get("url") or "")
+                if image_list
+                else ""
+            ),
+            title=data.get("title", ""),
             images=images,
             video_urls=video_qualities,
             duration=duration,
             size=video_qualities[0].size if video_qualities else 0,
             author=VideoAuthor(
-                uid=data["user"]["userId"],
-                name=data["user"]["nickname"],
-                avatar=data["user"]["avatar"],
+                uid=user.get("userId", ""),
+                name=user.get("nickname") or user.get("nickName", ""),
+                avatar=user.get("avatar", ""),
             ),
         )
         return video_info
+
+    @staticmethod
+    def _note_data(state: dict) -> tuple[dict | None, str]:
+        if not isinstance(state, dict):
+            return None, ""
+        note_state = state.get("note")
+        if isinstance(note_state, dict):
+            note_id = note_state.get("currentNoteId")
+            if note_id == "undefined":
+                raise ValueError("小红书分享链接已失效，请在小红书重新复制分享链接")
+            details = note_state.get("noteDetailMap")
+            detail = details.get(note_id) if isinstance(details, dict) else None
+            note = detail.get("note") if isinstance(detail, dict) else None
+            if isinstance(note, dict) and (note.get("video") or note.get("imageList")):
+                return note, str(note_id or "")
+        store = state.get("noteData")
+        payload = store.get("data") if isinstance(store, dict) else None
+        note = payload.get("noteData") if isinstance(payload, dict) else None
+        if isinstance(note, dict) and (note.get("video") or note.get("imageList")):
+            return note, str(note.get("noteId") or "")
+        return None, ""
+
+    @staticmethod
+    def _get_video_streams(note: dict) -> list[dict]:
+        video = note.get("video")
+        media = video.get("media") if isinstance(video, dict) else None
+        streams = media.get("stream") if isinstance(media, dict) else None
+        if not isinstance(streams, dict):
+            return []
+        result = []
+        for codec in ("h264", "h265"):
+            entries = streams.get(codec)
+            if isinstance(entries, list):
+                result.extend(
+                    {**stream, "videoCodec": stream.get("videoCodec") or codec}
+                    for stream in entries
+                    if isinstance(stream, dict)
+                )
+        return result
 
     async def _mobile_video_streams(
         self,
@@ -178,32 +207,13 @@ class RedBook(BaseParser):
             match = pattern.search(response.text)
             if not match:
                 return []
-            state = yaml.safe_load(match.group(1))
-        except (httpx.HTTPError, yaml.YAMLError):
+            state = chompjs.parse_js_object(match.group(1))
+        except (httpx.HTTPError, ValueError):
             return []
-        if not isinstance(state, dict):
+        note, returned_note_id = self._note_data(state)
+        if not note or returned_note_id != note_id:
             return []
-        store = state.get("noteData")
-        payload = store.get("data") if isinstance(store, dict) else None
-        note = payload.get("noteData") if isinstance(payload, dict) else None
-        if not isinstance(note, dict) or note.get("noteId") != note_id:
-            return []
-        video = note.get("video")
-        media = video.get("media") if isinstance(video, dict) else None
-        streams = media.get("stream") if isinstance(media, dict) else None
-        if not isinstance(streams, dict):
-            return []
-        result = []
-        for codec in ("h264", "h265"):
-            entries = streams.get(codec)
-            if not isinstance(entries, list):
-                continue
-            result.extend(
-                {**stream, "videoCodec": stream.get("videoCodec") or codec}
-                for stream in entries
-                if isinstance(stream, dict)
-            )
-        return result
+        return self._get_video_streams(note)
 
     @classmethod
     def _is_watermarked_stream(cls, stream: dict) -> bool:
