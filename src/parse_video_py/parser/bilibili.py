@@ -113,8 +113,14 @@ class BiliBili(BaseParser):
 
     async def _send_bili_request(self, api_url: str) -> str:
         """发送B站API请求"""
+        headers = self.get_default_headers()
+        if urlparse(api_url).path == "/x/web-interface/view":
+            # 详情接口对机房来源的浏览器 UA 会返回 412；播放接口仍使用浏览器 UA。
+            headers["User-Agent"] = "okhttp/4.9.3"
         async with httpx.AsyncClient() as client:
-            response = await client.get(api_url, headers=self.get_default_headers())
+            response = await client.get(api_url, headers=headers)
+            if response.status_code == 412:
+                raise ValueError("B站暂时限制了服务器访问（HTTP 412），请稍后重试")
             if response.status_code != 200:
                 raise ValueError(f"HTTP请求失败, 状态码: {response.status_code}")
             return response.text

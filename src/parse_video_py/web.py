@@ -627,6 +627,7 @@ def _verify_download_proxy_params(encoded_url: str, expires: int, signature: str
 def _download_request_headers(target_url: str) -> dict:
     parsed = urlparse(target_url)
     host = parsed.netloc.lower()
+    hostname = (parsed.hostname or "").lower()
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
@@ -641,6 +642,12 @@ def _download_request_headers(target_url: str) -> dict:
         headers["Referer"] = "https://v.kuaishou.com/"
     elif "douyin.com" in host or "douyinvod.com" in host or "zjcdn.com" in host:
         headers["Referer"] = "https://www.douyin.com/"
+    elif hostname in {
+        "bilivideo.com",
+        "bilivideo.cn",
+        "upos-hz-mirrorakam.akamaized.net",
+    } or hostname.endswith((".bilivideo.com", ".bilivideo.cn")):
+        headers["Referer"] = "https://www.bilibili.com/"
     elif parsed.scheme and parsed.netloc:
         headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
 
