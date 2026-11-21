@@ -9,6 +9,7 @@ import aiohttp
 import httpx
 
 from parse_video_py.parser import video_source_info_mapping
+from parse_video_py.parser.douyin import DouYinWorkUnavailable
 
 
 BEIJING_TIME = timezone(timedelta(hours=8))
@@ -48,6 +49,8 @@ def platform_for_url(url: str) -> str:
 
 
 def failure_reason(error: Exception) -> str:
+    if isinstance(error, DouYinWorkUnavailable):
+        return "upstream_no_work"
     if isinstance(error, (TimeoutError, asyncio.TimeoutError, httpx.TimeoutException)):
         return "upstream_timeout"
     if isinstance(error, (httpx.HTTPStatusError, aiohttp.ClientResponseError)):

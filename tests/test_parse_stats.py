@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from parse_video_py import parse_stats, web
 from parse_video_py.parser.base import ImgInfo, VideoInfo
+from parse_video_py.parser.douyin import DouYinWorkUnavailable
 
 
 STATS_URL = "/api/admin/parse_stats"
@@ -139,3 +140,7 @@ def test_platform_classification_is_hostname_only():
     assert parse_stats.platform_for_url("https://xhslink.cn/o/test") == "redbook"
     assert parse_stats.platform_for_url("https://bad.example/?q=xhslink.cn") == "unknown"
     assert parse_stats.platform_for_url("https://xhslink.cn.bad.example/") == "unknown"
+
+
+def test_douyin_missing_work_has_distinct_failure_reason():
+    assert parse_stats.failure_reason(DouYinWorkUnavailable()) == "upstream_no_work"

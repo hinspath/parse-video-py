@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from parse_video_py.parser.base import ImgInfo, VideoInfo, VideoQuality
-from parse_video_py.parser.douyin import DouYin
+from parse_video_py.parser.douyin import DouYin, DouYinWorkUnavailable
 
 
 def test_live_photo_url_prefers_last_url_and_removes_watermark():
@@ -350,5 +350,102 @@ async def test_missing_video_info_has_friendly_error(monkeypatch):
             **kwargs,
         ),
     )
-    with pytest.raises(ValueError, match="抖音暂未返回作品数据"):
+    with pytest.raises(DouYinWorkUnavailable, match="抖音暂未返回作品数据"):
         await parser.parse_share_url("https://www.douyin.com/video/123")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind,count,live",
+    [("note", 1, False), ("note", 3, False), ("note", 1, True), ("slides", 3, True)],
+)
+async def test_image_share_fallback_preserves_redirect_and_media(
+    monkeypatch, kind, count, live
+):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value=None))
+    location = f"https://www.iesdouyin.com/share/{kind}/123/?share_sign=x%2Fy&from=app"
+    media = []
+    for index in range(count):
+        image = {"display_image": {"url_list": [f"https://image.example/{index}.jpg"]}}
+        if live:
+            image["video"] = {"play_addr": {
+                "url_list": [f"https://media.example/playwm/{index}.mp4", None, ""]
+            }}
+        media.append(image)
+    work = {
+        "image_post_info": {"images": media},
+        "video": {"play_addr": {"url_list": [], "uri": "sound"}},
+    }
+    requests = []
+
+    def handle(request):
+        url = str(request.url)
+        requests.append(url)
+        if url == "https://v.douyin.com/sample/":
+            return httpx.Response(302, headers={"Location": location})
+        assert url == location
+        state = {"loaderData": {
+            "video_(id)/page": {"isSSR": False},
+            f"{kind}_(id)/page": {"videoInfoRes": {"item_list": [work]}},
+        }}
+        return httpx.Response(
+            200, text=f"<script>window._ROUTER_DATA={json.dumps(state)};</script>"
+        )
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    info = await parser.parse_share_url("https://v.douyin.com/sample/")
+    assert requests == ["https://v.douyin.com/sample/", location]
+    assert info.video_url == ""
+    assert info.images == [
+        ImgInfo(
+            url=f"https://image.example/{index}.jpg",
+            live_photo_url=f"https://media.example/play/{index}.mp4" if live else "",
+        )
+        for index in range(count)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_image_share_ignores_signed_placeholder_and_reads_share_api(monkeypatch):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "test-cookie")
+    signed = AsyncMock(return_value=VideoInfo(video_url="placeholder", cover_url=""))
+    monkeypatch.setattr(parser, "_parse_with_aweme_detail_api", signed)
+    gallery = {
+        "aweme_details": [{"image_infos": [{"url_list": ["https://image.example/a.jpg"]}]}]
+    }
+    shared = AsyncMock(side_effect=[gallery, {"aweme_details": [{"desc": "no images"}]}])
+    monkeypatch.setattr(parser, "_get_slides_info", shared)
+
+    result = await parser.parse_share_url("https://www.douyin.com/note/123")
+    signed.assert_awaited_once_with("123", "test-cookie")
+    assert result.images == [ImgInfo(url="https://image.example/a.jpg")]
+    assert result.video_url == ""
+    with pytest.raises(DouYinWorkUnavailable):
+        await parser.parse_share_url("https://www.douyin.com/note/123")
+
+
+@pytest.mark.asyncio
+async def test_shortlink_does_not_request_an_unrelated_redirect_host(monkeypatch):
+    requests = []
+
+    def handle(request):
+        requests.append(request.url.host)
+        return httpx.Response(
+            302, headers={"Location": "https://elsewhere.example/note/123/"}
+        )
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    with pytest.raises(ValueError, match="Failed to resolve"):
+        await DouYin().parse_share_url("https://v.douyin.com/sample/")
+    assert requests == ["v.douyin.com"]

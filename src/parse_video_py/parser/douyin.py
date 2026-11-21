@@ -6,7 +6,7 @@ import string
 import subprocess
 from contextvars import ContextVar
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -29,6 +29,14 @@ DOUYIN_MOBILE_UA = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) "
     "Version/16.6 Mobile/15E148 Safari/604.1"
 )
+DOUYIN_SHARE_HOSTS = {"www.iesdouyin.com", "www.douyin.com"}
+
+
+class DouYinWorkUnavailable(ValueError):
+    def __init__(self):
+        super().__init__(
+            "抖音暂未返回作品数据。请确认作品能在抖音打开，再复制完整分享链接重试。"
+        )
 
 
 class DouYin(BaseParser):
@@ -184,129 +192,115 @@ if (signature) {
         }
 
     async def parse_share_url(self, share_url: str) -> VideoInfo:
-        # 解析URL获取域名
         parsed_url = urlparse(share_url)
-        host = parsed_url.netloc
+        if parsed_url.netloc == "v.douyin.com":
+            share_url = await self._parse_app_share_url(share_url)
+            if not share_url:
+                raise ValueError("Failed to resolve Douyin app share URL")
+            parsed_url = urlparse(share_url)
+        if parsed_url.netloc not in DOUYIN_SHARE_HOSTS:
+            raise ValueError("Douyin not support this share host")
 
-        if host in ["www.iesdouyin.com", "www.douyin.com"]:
-            # 支持电脑网页端链接
-            video_id = self._parse_video_id_from_path(share_url)
-            if not video_id:
-                raise ValueError("Failed to parse video ID from PC share URL")
-            share_url = self._get_request_url_by_video_id(video_id)
-        elif host == "v.douyin.com":
-            # 支持app分享链接 https://v.douyin.com/xxxxxx
-            video_id = await self._parse_app_share_url(share_url)
-            if not video_id:
-                raise ValueError("Failed to parse video ID from app share URL")
-            share_url = self._get_request_url_by_video_id(video_id)
-        else:
-            raise ValueError(f"Douyin not support this host: {host}")
+        video_id = self._parse_video_id_from_path(share_url)
+        if not re.fullmatch(r"[0-9]+", video_id):
+            raise ValueError("Failed to parse Douyin work ID from share URL")
+        path = parsed_url.path.strip("/").split("/")
+        kind = (
+            path[-2] if len(path) > 1 and path[-2] in ("note", "slides") else "video"
+        )
+        is_image_post = kind != "video"
+        # Preserve the share context on official image-post pages.
+        page_url = self._get_request_url_by_video_id(
+            video_id, kind=kind, query=parsed_url.query if is_image_post else ""
+        )
 
         active_cookie = self._get_active_cookie()
         if active_cookie:
             try:
-                return await self._parse_with_aweme_detail_api(video_id, active_cookie)
+                signed = await self._parse_with_aweme_detail_api(video_id, active_cookie)
+                if not is_image_post or signed.images:
+                    return signed
             except Exception as err:
-                # Cookie / 签名 API 失效时，保留原有 Cookie 优先级并使用分享接口兜底。
-                print(f"[DouYin] Mode A failed, fallback to share API: {err}")
-                pass
+                status = (
+                    f" HTTP {err.response.status_code}"
+                    if isinstance(err, httpx.HTTPStatusError)
+                    else ""
+                )
+                print(
+                    "[DouYin] Mode A failed, fallback to share API: "
+                    f"{type(err).__name__}{status}"
+                )
 
         # 分享接口同时支持普通视频和图文，不依赖页面 SSR 的 videoInfoRes。
         json_data = await self._get_slides_info(video_id)
 
         if not json_data:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with httpx.AsyncClient(follow_redirects=not is_image_post) as client:
                 response = await client.get(
-                    share_url, headers=self.get_mobile_headers()
+                    page_url, headers=self.get_mobile_headers()
                 )
                 response.raise_for_status()
 
             # 分享接口不可用时保留旧版 HTML 兜底。
             pattern = re.compile(
-                pattern=r"window\._ROUTER_DATA\s*=\s*(.*?)</script>",
-                flags=re.DOTALL,
+                pattern=r"window\._ROUTER_DATA\s*=\s*",
             )
             find_res = pattern.search(response.text)
 
-            if not find_res or not find_res.group(1):
-                raise ValueError("parse video json info from html fail")
-
-            json_data = json.loads(find_res.group(1).strip())
+            if not find_res:
+                raise DouYinWorkUnavailable()
+            try:
+                json_data, _ = json.JSONDecoder().raw_decode(
+                    response.text[find_res.end():].lstrip()
+                )
+            except json.JSONDecodeError:
+                raise DouYinWorkUnavailable() from None
 
         # 处理不同的数据结构
         data = None
-        if isinstance(json_data, dict) and "aweme_details" in json_data:
-            # 专用API返回的数据结构
-            if len(json_data["aweme_details"]) > 0:
-                data = json_data["aweme_details"][0]
-        elif isinstance(json_data, dict) and "loaderData" in json_data:
-            # 标准HTML解析返回的数据结构
-            VIDEO_ID_PAGE_KEY = "video_(id)/page"
-            NOTE_ID_PAGE_KEY = "note_(id)/page"
+        details = json_data.get("aweme_details") if isinstance(json_data, dict) else None
+        if isinstance(details, list) and details:
+            data = details[0]
+        elif isinstance(json_data, dict) and isinstance(
+            loader_data := json_data.get("loaderData"), dict
+        ):
+            for page_kind in dict.fromkeys((kind, "video", "note", "slides")):
+                page = loader_data.get(f"{page_kind}_(id)/page")
+                original = page.get("videoInfoRes") if isinstance(page, dict) else None
+                items = original.get("item_list") if isinstance(original, dict) else None
+                if isinstance(items, list) and items:
+                    data = items[0]
+                    break
 
-            loader_data = json_data["loaderData"] or {}
-            page_data = (
-                loader_data.get(VIDEO_ID_PAGE_KEY)
-                or loader_data.get(NOTE_ID_PAGE_KEY)
-                or {}
-            )
-            original_video_info = page_data.get("videoInfoRes")
-            if not isinstance(original_video_info, dict):
-                raise ValueError("抖音暂未返回作品数据，请稍后重试或重新分享链接")
-
-            # 如果没有视频信息，获取并抛出异常
-            if not original_video_info.get("item_list"):
-                err_detail_msg = "failed to parse video info from HTML"
-                if filter_list := original_video_info.get("filter_list"):
-                    err_detail_msg = filter_list[0]["detail_msg"]
-                raise Exception(err_detail_msg)
-
-            data = original_video_info["item_list"][0]
-        else:
-            raise Exception("Unknown data structure")
-
-        if not data:
-            raise Exception("Failed to extract data from response")
+        if not isinstance(data, dict) or not data:
+            raise DouYinWorkUnavailable()
 
         # 获取图集图片地址
         images = []
-        # 如果data含有 images，并且 images 是一个列表
-        if "images" in data and isinstance(data["images"], list):
-            # 获取每个图片的url_list中的第一个元素，优先获取非 .webp 格式的图片 url
-            for img in data["images"]:
-                if (
-                    "url_list" in img
-                    and isinstance(img["url_list"], list)
-                    and len(img["url_list"]) > 0
-                ):
-                    image_url = self._get_no_webp_url(img["url_list"])
-                    if image_url:
-                        images.append(
-                            ImgInfo(
-                                url=image_url,
-                                live_photo_url=self._get_live_photo_url(img),
-                            )
-                        )
+        for img in self._get_aweme_images(data):
+            image_url = self._get_no_webp_url(img.get("url_list") or [])
+            image_url = image_url or self._get_image_url(img)
+            if image_url:
+                images.append(
+                    ImgInfo(url=image_url, live_photo_url=self._get_live_photo_url(img))
+                )
+        if is_image_post and not images:
+            raise DouYinWorkUnavailable()
 
         # 获取视频和音频播放地址
         video_url = ""
         music_url = ""
         video_qualities = []
         video = data.get("video") or {}
-        if "play_addr" in video:
-            if "url_list" in video["play_addr"]:
-                video_url = video["play_addr"]["url_list"][0].replace(
-                    "playwm", "play"
-                )
-            music_url = video["play_addr"].get("uri", "")
+        play_addr = video.get("play_addr") or {}
 
         # 如果图集地址不为空时，因为没有视频，上面抖音返回的视频地址无法访问，置空处理
-        if len(images) > 0:
-            video_url = ""
+        if images:
+            music_url = play_addr.get("uri", "")
         else:
-            # 图集时, video.play_addr.uri 是音频地址; 视频时不是
-            music_url = ""
+            video_urls = play_addr.get("url_list") or []
+            if video_urls and video_urls[0]:
+                video_url = video_urls[0].replace("playwm", "play")
             video_qualities = self._get_video_quality_entries(video)
             if video_qualities:
                 video_url = video_qualities[0].url
@@ -320,13 +314,7 @@ if (signature) {
                 video_qualities[0].url = video_mp4_url
 
         # 获取封面图片，优先获取非 .webp 格式的图片 url
-        cover_url = ""
-        if (
-            "video" in data
-            and "cover" in data["video"]
-            and "url_list" in data["video"]["cover"]
-        ):
-            cover_url = self._get_no_webp_url(data["video"]["cover"]["url_list"])
+        cover_url = self._get_no_webp_url((video.get("cover") or {}).get("url_list") or [])
 
         video_info = VideoInfo(
             video_url=video_mp4_url,
@@ -564,8 +552,12 @@ if (signature) {
         req_url = self._get_request_url_by_video_id(video_id)
         return await self.parse_share_url(req_url)
 
-    def _get_request_url_by_video_id(self, video_id) -> str:
-        return f"https://www.iesdouyin.com/share/video/{video_id}/"
+    def _get_request_url_by_video_id(
+        self, video_id: str, *, kind: str = "video", query: str = ""
+    ) -> str:
+        return urlunparse(
+            ("https", "www.iesdouyin.com", f"/share/{kind}/{video_id}/", "", query, "")
+        )
 
     async def _parse_app_share_url(self, share_url: str) -> str:
         """解析app分享链接 https://v.douyin.com/xxxxxx"""
@@ -576,13 +568,14 @@ if (signature) {
         if not location:
             return ""
 
-        # 检查是否是西瓜视频链接
-        if "ixigua.com" in location:
-            # 如果是西瓜视频，这里应该返回特殊处理，暂时返回空
-            # 在实际应用中可能需要调用西瓜视频解析器
+        target = urlparse(location)
+        if (
+            target.scheme not in ("http", "https")
+            or target.netloc not in DOUYIN_SHARE_HOSTS
+        ):
             return ""
 
-        return self._parse_video_id_from_path(location)
+        return location
 
     def _parse_video_id_from_path(self, url_path: str) -> str:
         """从URL路径中解析视频ID"""
@@ -640,8 +633,9 @@ if (signature) {
         for key in ("play_addr", "download_addr"):
             addr_info = video.get(key) or {}
             url_list = addr_info.get("url_list") or []
-            if url_list:
-                return url_list[-1].replace("playwm", "play")
+            for url in reversed(url_list):
+                if isinstance(url, str) and url:
+                    return url.replace("playwm", "play")
 
         def is_video_url(url: str) -> bool:
             return (
