@@ -218,7 +218,7 @@ if (signature) {
         if active_cookie:
             try:
                 signed = await self._parse_with_aweme_detail_api(video_id, active_cookie)
-                if not is_image_post or signed.images:
+                if signed.images or (not is_image_post and signed.video_url):
                     return signed
             except Exception as err:
                 status = (
@@ -232,47 +232,10 @@ if (signature) {
                 )
 
         # 分享接口同时支持普通视频和图文，不依赖页面 SSR 的 videoInfoRes。
-        json_data = await self._get_slides_info(video_id)
-
-        if not json_data:
-            async with httpx.AsyncClient(follow_redirects=not is_image_post) as client:
-                response = await client.get(
-                    page_url, headers=self.get_mobile_headers()
-                )
-                response.raise_for_status()
-
-            # 分享接口不可用时保留旧版 HTML 兜底。
-            pattern = re.compile(
-                pattern=r"window\._ROUTER_DATA\s*=\s*",
-            )
-            find_res = pattern.search(response.text)
-
-            if not find_res:
-                raise DouYinWorkUnavailable()
-            try:
-                json_data, _ = json.JSONDecoder().raw_decode(
-                    response.text[find_res.end():].lstrip()
-                )
-            except json.JSONDecodeError:
-                raise DouYinWorkUnavailable() from None
-
-        # 处理不同的数据结构
-        data = None
-        details = json_data.get("aweme_details") if isinstance(json_data, dict) else None
-        if isinstance(details, list) and details:
-            data = details[0]
-        elif isinstance(json_data, dict) and isinstance(
-            loader_data := json_data.get("loaderData"), dict
-        ):
-            for page_kind in dict.fromkeys((kind, "video", "note", "slides")):
-                page = loader_data.get(f"{page_kind}_(id)/page")
-                original = page.get("videoInfoRes") if isinstance(page, dict) else None
-                items = original.get("item_list") if isinstance(original, dict) else None
-                if isinstance(items, list) and items:
-                    data = items[0]
-                    break
-
-        if not isinstance(data, dict) or not data:
+        data = self._extract_share_work(await self._get_slides_info(video_id), kind)
+        if not data or (is_image_post and not self._get_aweme_images(data)):
+            data = await self._get_share_page_work(page_url, video_id, kind)
+        if not data:
             raise DouYinWorkUnavailable()
 
         # 获取图集图片地址
@@ -336,6 +299,66 @@ if (signature) {
             video_urls=video_qualities,
         )
         return video_info
+
+    @staticmethod
+    def _extract_share_work(state: dict | None, kind: str) -> dict | None:
+        if not isinstance(state, dict):
+            return None
+        details = state.get("aweme_details")
+        if isinstance(details, list) and details:
+            return details[0] if isinstance(details[0], dict) else None
+        loader = state.get("loaderData")
+        if not isinstance(loader, dict):
+            return None
+        for page_kind in dict.fromkeys((kind, "video", "note", "slides")):
+            page = loader.get(f"{page_kind}_(id)/page")
+            info = page.get("videoInfoRes") if isinstance(page, dict) else None
+            items = info.get("item_list") if isinstance(info, dict) else None
+            if isinstance(items, list) and items and isinstance(items[0], dict):
+                return items[0]
+        return None
+
+    async def _get_share_page_work(
+        self, page_url: str, video_id: str, kind: str
+    ) -> dict | None:
+        async with httpx.AsyncClient(follow_redirects=kind == "video") as client:
+            data = await self._read_share_page(client, page_url, kind)
+            if data and (kind == "video" or self._get_aweme_images(data)):
+                return data
+
+            # A public share page can issue a guest cookie even when it omits the work.
+            # Retry only after receiving one, within this request's cookie jar.
+            fallback = self._get_request_url_by_video_id(video_id)
+            has_guest_cookie = bool(client.cookies)
+            if fallback == page_url and not has_guest_cookie:
+                return None
+            for attempt in range(1 if has_guest_cookie else 2):
+                if attempt and not client.cookies:
+                    break
+                work = await self._read_share_page(client, fallback, "video")
+                if (
+                    work
+                    and str(work.get("aweme_id") or video_id) == video_id
+                    and (kind == "video" or self._get_aweme_images(work))
+                ):
+                    return work
+            return None
+
+    async def _read_share_page(
+        self, client: httpx.AsyncClient, url: str, kind: str
+    ) -> dict | None:
+        response = await client.get(url, headers=self.get_mobile_headers())
+        response.raise_for_status()
+        match = re.search(r"window\._ROUTER_DATA\s*=\s*", response.text)
+        if not match:
+            return None
+        try:
+            state, _ = json.JSONDecoder().raw_decode(
+                response.text[match.end():].lstrip()
+            )
+        except json.JSONDecodeError:
+            return None
+        return self._extract_share_work(state, kind)
 
     async def _parse_with_aweme_detail_api(
         self,

@@ -422,13 +422,155 @@ async def test_image_share_ignores_signed_placeholder_and_reads_share_api(monkey
     }
     shared = AsyncMock(side_effect=[gallery, {"aweme_details": [{"desc": "no images"}]}])
     monkeypatch.setattr(parser, "_get_slides_info", shared)
+    read_page = AsyncMock(return_value=None)
+    monkeypatch.setattr(parser, "_read_share_page", read_page)
 
     result = await parser.parse_share_url("https://www.douyin.com/note/123")
     signed.assert_awaited_once_with("123", "test-cookie")
+    read_page.assert_not_awaited()
     assert result.images == [ImgInfo(url="https://image.example/a.jpg")]
     assert result.video_url == ""
     with pytest.raises(DouYinWorkUnavailable):
         await parser.parse_share_url("https://www.douyin.com/note/123")
+    assert read_page.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["note", "video"])
+async def test_public_share_retry_carries_only_per_request_guest_cookie(monkeypatch, kind):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "sessionid=test-account")
+    monkeypatch.setattr(
+        parser, "_parse_with_aweme_detail_api",
+        AsyncMock(return_value=VideoInfo(video_url="", cover_url="")),
+    )
+    slides = AsyncMock(return_value=None)
+    monkeypatch.setattr(parser, "_get_slides_info", slides)
+    requests = []
+
+    def handle(request):
+        requests.append((request.url.path, request.headers.get("cookie")))
+        if not request.headers.get("cookie"):
+            assert request.url.path == f"/share/{kind}/123/"
+            return httpx.Response(
+                200, text="<html>No work yet</html>",
+                headers={"Set-Cookie": "visitor=test-guest; Path=/; Secure"},
+            )
+        assert request.headers["cookie"] == "visitor=test-guest"
+        assert request.url.path == "/share/video/123/"
+        work = {"aweme_id": "123"}
+        if kind == "note":
+            work["images"] = [{"url_list": ["https://image.example/a.jpg"]}]
+        else:
+            work["video"] = {"play_addr": {"url_list": ["https://media.example/a.mp4"]}}
+        state = {"loaderData": {"video_(id)/page": {"videoInfoRes": {"item_list": [work]}}}}
+        return httpx.Response(
+            200, text=f"<script>window._ROUTER_DATA={json.dumps(state)};</script>"
+        )
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    monkeypatch.setattr(parser, "get_video_redirect_url", AsyncMock(side_effect=lambda url: url))
+    for _ in range(2):
+        info = await parser.parse_share_url(f"https://www.douyin.com/{kind}/123")
+        if kind == "note":
+            assert info.images == [ImgInfo(url="https://image.example/a.jpg")]
+        else:
+            assert info.video_url == "https://media.example/a.mp4"
+
+    assert requests == [(f"/share/{kind}/123/", None), ("/share/video/123/", "visitor=test-guest")] * 2
+    assert slides.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,expected_requests", [("note", 2), ("video", 1)])
+async def test_public_share_retry_is_bounded_without_guest_cookie(
+    monkeypatch, kind, expected_requests
+):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value=None))
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert "cookie" not in request.headers
+        return httpx.Response(200, text="<html>No media</html>")
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    with pytest.raises(DouYinWorkUnavailable):
+        await parser.parse_share_url(f"https://www.douyin.com/{kind}/123")
+    assert len(requests) == expected_requests
+
+
+@pytest.mark.asyncio
+async def test_late_guest_cookie_can_recover_single_photo_without_live_video(monkeypatch):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value=None))
+    requests = []
+
+    def handle(request):
+        requests.append((request.url.path, request.headers.get("cookie")))
+        if request.url.path == "/share/note/123/":
+            return httpx.Response(200, text="<html>No detail or cookie</html>")
+        if not request.headers.get("cookie"):
+            return httpx.Response(
+                200, text="<html>No detail yet</html>",
+                headers={"Set-Cookie": "visitor=late-guest; Path=/; Secure"},
+            )
+        work = {
+            "aweme_id": "123",
+            "images": [{"url_list": ["https://image.example/cover.jpg"]}],
+            "video": {"play_addr": {"uri": "audio", "url_list": ["https://media.example/audio"]}},
+        }
+        state = {"loaderData": {"video_(id)/page": {"videoInfoRes": {"item_list": [work]}}}}
+        return httpx.Response(
+            200, text=f"<script>window._ROUTER_DATA={json.dumps(state)};</script>"
+        )
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    info = await parser.parse_share_url("https://www.douyin.com/note/123")
+    assert info.images == [ImgInfo(url="https://image.example/cover.jpg", live_photo_url="")]
+    assert info.video_url == ""
+    assert requests == [
+        ("/share/note/123/", None),
+        ("/share/video/123/", None),
+        ("/share/video/123/", "visitor=late-guest"),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 429])
+async def test_public_share_does_not_retry_explicit_denials(monkeypatch, status):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value=None))
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(status)
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.httpx.AsyncClient",
+        lambda **kwargs: async_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await parser.parse_share_url("https://www.douyin.com/note/123")
+    assert len(requests) == 1
 
 
 @pytest.mark.asyncio
