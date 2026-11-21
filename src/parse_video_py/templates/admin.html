@@ -83,7 +83,7 @@
             width: min(1180px, calc(100vw - 48px));
             margin: 22px auto 46px;
             display: grid;
-            grid-template-columns: 0.86fr 1.14fr;
+            grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
             gap: 24px;
             align-items: start;
         }
@@ -277,6 +277,133 @@
             color: #333;
         }
 
+        .parse-stats {
+            margin-bottom: 16px;
+        }
+
+        .stats-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: end;
+            gap: 8px;
+        }
+
+        .stats-controls label {
+            display: grid;
+            gap: 5px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .stats-controls select {
+            min-height: 44px;
+            padding: 0 6px;
+            background: #fff;
+            color: var(--ink);
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        .stats-controls button {
+            min-height: 44px;
+            padding-inline: 10px;
+        }
+
+        .stats-controls button:disabled {
+            color: var(--muted);
+            cursor: wait;
+        }
+
+        .stats-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(67px, 1fr);
+            gap: 8px;
+            padding: 13px 0;
+            margin: 0;
+            border-block: 1px solid var(--line);
+        }
+
+        .stats-metrics dt {
+            color: #555;
+            font-size: 13px;
+        }
+
+        #parseStatsStatus {
+            font-size: 13px;
+            text-wrap: balance;
+        }
+
+        .stats-metrics dd {
+            margin: 4px 0 0;
+            font-size: 19px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            overflow-wrap: anywhere;
+        }
+
+        .stats-metrics .success,
+        .stats-table .success {
+            color: #146744;
+        }
+
+        .stats-metrics .failed {
+            color: #ad1b34;
+        }
+
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stats-table caption {
+            padding: 14px 0 6px;
+            text-align: left;
+            font-weight: 800;
+        }
+
+        .stats-table th,
+        .stats-table td {
+            padding: 7px 3px;
+            text-align: right;
+            border-bottom: 1px solid var(--line);
+            overflow-wrap: anywhere;
+        }
+
+        .stats-table th:first-child {
+            text-align: left;
+        }
+
+        .stats-table thead {
+            color: #555;
+        }
+
+        .stats-failures {
+            margin-top: 14px;
+            font-size: 13px;
+        }
+
+        .stats-failures h3 {
+            margin: 0 0 5px;
+            font-size: 13px;
+        }
+
+        .stats-failures ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .stats-failures li {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 5px 0;
+            color: #555;
+        }
+
         .toast {
             position: fixed;
             left: 50%;
@@ -327,6 +454,47 @@
         <section>
             <h1 class="hero-title">Admin<span>控制台</span></h1>
             <p class="hero-subtitle">这里集中管理全局 Cookie、下载代理开关和失败域名记录。普通用户自己的 Cookie 只保存在用户浏览器，不会写入这里。</p>
+            <section class="panel parse-stats" aria-labelledby="parseStatsTitle">
+                <div class="panel-title">
+                    <h2 id="parseStatsTitle">解析成功率</h2>
+                </div>
+                <div class="stats-controls">
+                    <label>时间范围
+                        <select id="parseStatsDays">
+                            <option value="1">今天</option>
+                            <option value="2">最近 2 天</option>
+                            <option value="7" selected>最近 7 天</option>
+                            <option value="30">最近 30 天</option>
+                        </select>
+                    </label>
+                    <label>解析入口
+                        <select id="parseStatsChannel">
+                            <option value="all">全部入口</option>
+                            <option value="miniprogram">小程序</option>
+                            <option value="web">网页版</option>
+                        </select>
+                    </label>
+                    <button class="btn btn-line" id="refreshParseStatsBtn" type="button">刷新</button>
+                </div>
+                <p class="status" id="parseStatsStatus" role="status">正在读取解析统计...</p>
+                <dl class="stats-metrics" aria-label="解析汇总">
+                    <div><dt>请求数</dt><dd id="parseStatsTotal">–</dd></div>
+                    <div><dt>成功数</dt><dd class="success" id="parseStatsSuccess">–</dd></div>
+                    <div><dt>失败数</dt><dd class="failed" id="parseStatsFailed">–</dd></div>
+                    <div><dt>成功率</dt><dd id="parseStatsRate">–</dd></div>
+                </dl>
+                <table class="stats-table" id="parseStatsTable" hidden>
+                    <caption>按平台统计</caption>
+                    <thead>
+                        <tr><th scope="col">平台</th><th scope="col">请求</th><th scope="col">成功</th><th scope="col">失败</th><th scope="col">成功率</th></tr>
+                    </thead>
+                    <tbody id="parseStatsPlatforms"></tbody>
+                </table>
+                <div class="stats-failures" id="parseStatsFailures" hidden>
+                    <h3>失败原因</h3>
+                    <ul id="parseStatsReasons"></ul>
+                </div>
+            </section>
             <section class="panel">
                 <p class="status">进入后台前会先进行浏览器鉴权；敏感操作直接使用当前登录态提交，不需要把 API Token 放在前端页面。</p>
             </section>
@@ -412,6 +580,87 @@
     <script>
         const $ = (id) => document.getElementById(id);
         let toastTimer = null;
+        let parseStatsRequest = 0;
+        const statsPlatformNames = {
+            douyin: "抖音", redbook: "小红书", kuaishou: "快手", bilibili: "B站",
+            weibo: "微博", jimeng: "即梦", cctv: "央视网", sohu: "搜狐视频", qqvideo: "腾讯视频",
+            xigua: "西瓜视频", twitter: "X / Twitter", unknown: "未识别",
+            pipixia: "皮皮虾", weishi: "微视", lvzhou: "绿洲", zuiyou: "最右",
+            quanmin: "度小视", lishipin: "梨视频", pipigaoxiao: "皮皮搞笑",
+            huya: "虎牙", acfun: "A站", doupai: "逗拍", meipai: "美拍",
+            quanminkge: "全民K歌", sixroom: "六间房", xinpianchang: "新片场", haokan: "好看视频"
+        };
+        const statsReasonNames = {
+            invalid_link: "未检测到有效链接", unsupported_platform: "不支持的分享链接",
+            upstream_timeout: "平台响应超时", upstream_denied: "平台拒绝访问",
+            upstream_not_found: "平台内容不存在", upstream_rate_limited: "平台限流",
+            upstream_http: "平台响应异常", upstream_connection: "平台连接失败",
+            parser_error: "解析异常", no_media: "未返回媒体地址"
+        };
+
+        function renderParseStats(data) {
+            const overall = data?.overall;
+            const rate = (value) => value == null ? "–" : `${value}%`;
+            $("parseStatsTotal").textContent = overall?.total ?? "–";
+            $("parseStatsSuccess").textContent = overall?.success ?? "–";
+            $("parseStatsFailed").textContent = overall?.failed ?? "–";
+            $("parseStatsRate").textContent = rate(overall?.rate);
+
+            const platforms = data?.platforms || [];
+            const tbody = $("parseStatsPlatforms");
+            tbody.replaceChildren();
+            for (const item of platforms) {
+                const row = tbody.insertRow();
+                const heading = document.createElement("th");
+                heading.scope = "row";
+                heading.textContent = statsPlatformNames[item.platform] || item.platform;
+                row.append(heading);
+                row.insertCell().textContent = item.total;
+                row.insertCell().textContent = item.success;
+                row.insertCell().textContent = item.failed;
+                const rateCell = row.insertCell();
+                rateCell.textContent = rate(item.rate);
+                if (item.rate === 100) rateCell.className = "success";
+            }
+            $("parseStatsTable").hidden = !platforms.length;
+
+            const failures = data?.failures || [];
+            $("parseStatsReasons").replaceChildren(...failures.map((item) => {
+                const row = document.createElement("li");
+                const count = document.createElement("strong");
+                count.textContent = item.count;
+                row.append(statsReasonNames[item.reason] || "其他异常", count);
+                return row;
+            }));
+            $("parseStatsFailures").hidden = !failures.length;
+        }
+
+        async function loadParseStats() {
+            const request = ++parseStatsRequest;
+            const status = $("parseStatsStatus");
+            const refresh = $("refreshParseStatsBtn");
+            const params = new URLSearchParams({
+                days: $("parseStatsDays").value,
+                channel: $("parseStatsChannel").value
+            });
+            renderParseStats();
+            status.textContent = "正在读取解析统计...";
+            refresh.disabled = true;
+            try {
+                const response = await fetch(`/api/admin/parse_stats?${params}`, { cache: "no-store" });
+                if (response.status === 401) throw new Error("请重新登录后台");
+                if (!response.ok) throw new Error("统计暂不可用，请刷新重试");
+                const { data } = await response.json();
+                if (request !== parseStatsRequest) return;
+                renderParseStats(data);
+                const dates = data.start === data.end ? data.end : `${data.start} 至 ${data.end}`;
+                status.textContent = `${dates}（北京时间）${data.overall.total ? "" : " · 暂无解析记录"}`;
+            } catch (error) {
+                if (request === parseStatsRequest) status.textContent = `读取失败：${error.message}`;
+            } finally {
+                if (request === parseStatsRequest) refresh.disabled = false;
+            }
+        }
 
         function showToast(message) {
             const toast = $("toast");
@@ -656,11 +905,15 @@
         $("disableWebProxyBtn").addEventListener("click", () => setWebProxyMode(false));
         $("refreshDomainsBtn").addEventListener("click", loadDomains);
         $("clearDomainsBtn").addEventListener("click", clearDomains);
+        $("parseStatsDays").addEventListener("change", loadParseStats);
+        $("parseStatsChannel").addEventListener("change", loadParseStats);
+        $("refreshParseStatsBtn").addEventListener("click", loadParseStats);
 
         loadCookieStatus();
         loadProxyMode();
         loadWebProxyMode();
         loadDomains();
+        loadParseStats();
     </script>
 </body>
 </html>

@@ -151,6 +151,12 @@ export ERROR_REPORT_FILE='/var/www/douyin/public/uploads/error_domains.json'
 uvicorn parse_video_py.web:app --reload
 ```
 
+### 后台解析统计
+
+登录 `/admin` 查看小程序和网页分享链接的解析成功率，可按北京时间和入口筛选。统计已进入解析流程的请求，收到媒体地址才计为成功；不包含鉴权拦截、CDN 播放或相册保存结果。
+
+从启用后开始累计，不回填旧访问日志。数据只保存近 30 个自然日的汇总计数，默认存放在 `.runtime/parse_stats.sqlite3`，可设置 `PARSE_STATS_FILE` 指定持久化路径。不会保存原始链接、用户标识、Cookie、令牌或异常原文。容器部署时应将统计文件放到持久化卷内。
+
 ## Docker运行
 ### 构建当前仓库镜像
 ```bash

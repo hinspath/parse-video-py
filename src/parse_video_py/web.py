@@ -4,19 +4,23 @@ import dataclasses
 import hashlib
 import hmac
 import json
+import logging
 import os
+import sqlite3
 import time
 from pathlib import Path
+from typing import Literal
 from urllib.parse import unquote, urlparse
 
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi_mcp import FastApiMCP
 from pydantic import BaseModel
 
-from parse_video_py import VideoSource, parse_video_id, parse_video_share_url
+from parse_video_py import VideoSource, parse_stats, parse_video_id, parse_video_share_url
 from parse_video_py.parser.douyin import DouYin
 from parse_video_py.utils import extract_url
 
@@ -35,6 +39,7 @@ mcp = FastApiMCP(app)
 mcp.mount_http()
 
 templates = Jinja2Templates(directory=_get_templates_dir())
+logger = logging.getLogger(__name__)
 
 API_SECRET_TOKEN = os.getenv("API_SECRET_TOKEN", "wxd8f9c2a1b3_my_secret_pwd")
 MINIPROGRAM_API_KEY = os.getenv(
@@ -80,6 +85,9 @@ WEB_PROXY_MODE_FILE = Path(
         str(Path.cwd() / ".runtime" / "web_proxy_mode.json"),
     )
 )
+PARSE_STATS_FILE = Path(
+    os.getenv("PARSE_STATS_FILE", str(Path.cwd() / ".runtime" / "parse_stats.sqlite3"))
+)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 DOWNLOAD_PROXY_SECRET = os.getenv("DOWNLOAD_PROXY_SECRET", API_SECRET_TOKEN)
 DOWNLOAD_PROXY_TTL_SECONDS = int(os.getenv("DOWNLOAD_PROXY_TTL_SECONDS", "1800"))
@@ -96,6 +104,7 @@ AUTH_WHITELIST = {
     "/favicon.ico",
     "/favicon.png",
     "/api/download",
+    "/api/admin/parse_stats",
     "/api/download_proxy_mode",
     "/api/web_download",
     "/api/web_proxy_mode",
@@ -351,8 +360,10 @@ async def _parse_share_url_payload(
     request: Request | None = None,
     include_web_proxy: bool = False,
 ):
+    channel = "web" if include_web_proxy else "miniprogram"
     video_share_url = extract_url(url)
     if video_share_url is None:
+        await _record_parse_outcome(channel, "unknown", "invalid_link")
         return {
             "code": 400,
             "msg": "未检测到有效的分享链接",
@@ -364,17 +375,32 @@ async def _parse_share_url_payload(
         if request_cookie:
             request_cookie_token = DouYin.set_request_cookie(request_cookie)
 
+    platform = parse_stats.platform_for_url(video_share_url)
     try:
         video_info = await parse_video_share_url(video_share_url)
-        return _success_payload(video_info, request, include_web_proxy)
+        payload = _success_payload(video_info, request, include_web_proxy)
+        outcome = parse_stats.result_outcome(payload["data"])
     except Exception as err:
-        return {
+        outcome = parse_stats.failure_reason(err)
+        payload = {
             "code": 500,
             "msg": str(err),
         }
     finally:
         if request_cookie_token is not None:
             DouYin.reset_request_cookie(request_cookie_token)
+
+    await _record_parse_outcome(channel, platform, outcome)
+    return payload
+
+
+async def _record_parse_outcome(channel: str, platform: str, outcome: str) -> None:
+    try:
+        await run_in_threadpool(
+            parse_stats.record_outcome, PARSE_STATS_FILE, channel, platform, outcome
+        )
+    except (OSError, sqlite3.Error) as err:
+        logger.warning("Parse statistics could not be recorded: %s", type(err).__name__)
 
 
 def _read_error_domains() -> list[str]:
@@ -907,6 +933,29 @@ async def read_admin(request: Request):
             "title": "Video Parser Admin",
         },
     )
+
+
+@app.get("/api/admin/parse_stats", include_in_schema=False)
+def read_parse_stats(
+    request: Request,
+    days: Literal["1", "2", "7", "30"] = "7",
+    channel: Literal["all", "miniprogram", "web"] = "all",
+):
+    headers = {"Cache-Control": "private, no-store"}
+    if not _admin_basic_auth_is_valid(request):
+        response = _admin_basic_auth_response()
+        response.headers.update(headers)
+        return response
+    try:
+        data = parse_stats.read_summary(PARSE_STATS_FILE, int(days), channel)
+    except (OSError, sqlite3.Error) as err:
+        logger.warning("Parse statistics could not be read: %s", type(err).__name__)
+        return JSONResponse(
+            {"code": 503, "msg": "解析统计暂不可用"},
+            status_code=503,
+            headers=headers,
+        )
+    return JSONResponse({"code": 200, "data": data}, headers=headers)
 
 
 @app.post("/api/update_cookie")

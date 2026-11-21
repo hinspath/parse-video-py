@@ -1,6 +1,7 @@
 import base64
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from fastapi.testclient import TestClient
 
 from parse_video_py import web
@@ -10,6 +11,11 @@ from parse_video_py.parser.base import ImgInfo, VideoAuthor, VideoInfo, VideoQua
 client = TestClient(web.app)
 AUTH_HEADERS = {"x-auth-token": "wxd8f9c2a1b3_my_secret_pwd"}
 MINIPROGRAM_HEADERS = {"x-api-key": "HinsCheung_Love_Video_Parser_2026_No_Copy"}
+
+
+@pytest.fixture(autouse=True)
+def isolate_parse_stats(monkeypatch, tmp_path):
+    monkeypatch.setattr(web, "PARSE_STATS_FILE", tmp_path / "parse_stats.sqlite3")
 
 
 def _basic_admin_headers(
