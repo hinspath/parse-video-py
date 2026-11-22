@@ -6,6 +6,89 @@ import pytest
 
 from parse_video_py.parser.base import ImgInfo, VideoInfo, VideoQuality
 from parse_video_py.parser.douyin import DouYin, DouYinWorkUnavailable
+from parse_video_py.parser.douyin_live_page import _live_urls_from_frames
+
+
+def _desktop_frame(work_id, images):
+    props = {
+        "awemeId": work_id,
+        "aweme": {"statusCode": 0, "detail": {"images": images}},
+    }
+    record = "7:" + json.dumps(["$", "$L9", None, props])
+    return f"self.__pace_f.push({json.dumps([1, record])});"
+
+
+def test_desktop_live_frame_uses_only_matching_work_and_unique_live_images():
+    clip = "https://v26-web.douyinvod.com/a/clip.mp4"
+    video = {"playAddr": [{"src": clip}]}
+    good = {"uri": "live", "clipType": 5, "video": video}
+    frame = _desktop_frame("123", [
+        good,
+        {"uri": "still", "clipType": 2, "video": video},
+        {"uri": "duplicated", "clipType": 3, "video": video},
+        {"uri": "duplicated", "clipType": 2},
+        {"uri": "audio", "clipType": 5, "video": {
+            "playAddr": [{"src": "https://lf9-music-east.douyinstatic.com/audio"}]
+        }},
+        {"uri": "not-a-cdn", "clipType": 5, "video": {
+            "playAddr": [{"src": "https://douyinvod.com.example/clip.mp4"}]
+        }},
+    ])
+    assert _live_urls_from_frames(
+        [_desktop_frame("999", [good]), "self.__pace_f.push(bad)", frame], "123"
+    ) == {"live": clip}
+
+
+@pytest.mark.asyncio
+async def test_share_fallback_fills_only_missing_live_by_image_uri(monkeypatch):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    original = "https://media.example/old.mp4"
+    extra = "https://v26-web.douyinvod.com/new.mp4"
+    images = [
+        {"uri": "still", "url_list": ["https://media.example/still.jpg"]},
+        {"uri": "live", "url_list": ["https://media.example/live.jpg"]},
+        {"uri": "working", "url_list": ["https://media.example/working.jpg"],
+         "video": {"play_addr": {"url_list": [original]}}},
+    ]
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value={
+        "aweme_details": [{"images": images}],
+    }))
+    browser_fallback = AsyncMock(return_value={
+        "working": "https://v26-web.douyinvod.com/should-not-overwrite.mp4",
+        "live": extra,
+    })
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.get_desktop_live_urls", browser_fallback,
+    )
+
+    info = await parser.parse_share_url("https://www.iesdouyin.com/share/slides/123/")
+
+    browser_fallback.assert_awaited_once_with("123")
+    assert [image.url for image in info.images] == [row["url_list"][0] for row in images]
+    assert [image.live_photo_url for image in info.images] == ["", extra, original]
+
+
+@pytest.mark.asyncio
+async def test_complete_live_gallery_does_not_open_browser(monkeypatch):
+    parser = DouYin()
+    monkeypatch.setattr(parser, "_get_active_cookie", lambda: "")
+    monkeypatch.setattr(parser, "_get_slides_info", AsyncMock(return_value={
+        "aweme_details": [{"images": [{
+            "uri": "live",
+            "url_list": ["https://media.example/live.jpg"],
+            "video": {"play_addr": {"url_list": ["https://media.example/a.mp4"]}},
+        }]}],
+    }))
+    browser_fallback = AsyncMock()
+    monkeypatch.setattr(
+        "parse_video_py.parser.douyin.get_desktop_live_urls", browser_fallback,
+    )
+
+    info = await parser.parse_share_url("https://www.iesdouyin.com/share/slides/123/")
+
+    browser_fallback.assert_not_awaited()
+    assert info.images[0].live_photo_url == "https://media.example/a.mp4"
 
 
 def test_live_photo_url_prefers_last_url_and_removes_watermark():

@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - Mode A 会自动降级到 HTML 解析
     execjs = None
 
 from .base import BaseParser, ImgInfo, VideoAuthor, VideoInfo, VideoQuality
+from .douyin_live_page import get_desktop_live_urls
 
 GLOBAL_DY_COOKIE = os.getenv("DOUYIN_COOKIE", "").strip()
 REQUEST_DY_COOKIE: ContextVar[str] = ContextVar("REQUEST_DY_COOKIE", default="")
@@ -238,17 +239,35 @@ if (signature) {
         if not data:
             raise DouYinWorkUnavailable()
 
-        # 获取图集图片地址
+        # The share API can report a real Live image as clip_type=2 and omit
+        # its video. Keep the original image and collect gaps by image URI.
         images = []
+        missing_live = []
         for img in self._get_aweme_images(data):
             image_url = self._get_no_webp_url(img.get("url_list") or [])
             image_url = image_url or self._get_image_url(img)
             if image_url:
-                images.append(
-                    ImgInfo(url=image_url, live_photo_url=self._get_live_photo_url(img))
+                image = ImgInfo(
+                    url=image_url, live_photo_url=self._get_live_photo_url(img)
                 )
+                images.append(image)
+                uri = img.get("uri")
+                if (
+                    is_image_post
+                    and not image.live_photo_url
+                    and isinstance(uri, str)
+                    and uri
+                ):
+                    missing_live.append((uri, image))
         if is_image_post and not images:
             raise DouYinWorkUnavailable()
+
+        if missing_live:
+            # Look up the gallery once. Pair by URI, never by array order or
+            # the post-level video, which for galleries is background audio.
+            desktop_live_urls = await get_desktop_live_urls(video_id)
+            for uri, image in missing_live:
+                image.live_photo_url = desktop_live_urls.get(uri, "")
 
         # 获取视频和音频播放地址
         video_url = ""

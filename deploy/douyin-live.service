@@ -1,0 +1,30 @@
+[Unit]
+Description=Douyin public Live photo browser worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=douyin-live
+Group=douyin-live
+WorkingDirectory=/opt/douyin-live
+Environment=HOME=/var/lib/douyin-live
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/douyin-live/browsers
+Environment=PYTHONDONTWRITEBYTECODE=1
+RuntimeDirectory=douyin-live
+RuntimeDirectoryMode=0700
+StateDirectory=douyin-live
+StateDirectoryMode=0700
+ExecStart=/opt/douyin-live/venv/bin/uvicorn douyin_live_worker:app --uds /run/douyin-live/browser.sock --no-access-log
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+InaccessiblePaths=-/var/www/douyin
+MemoryMax=768M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

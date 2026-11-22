@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+douyin-live = ["playwright>=1.49,<2"]
 web = [
     "fastapi>=0.110",
     "uvicorn>=0.29",

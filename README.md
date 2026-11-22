@@ -111,6 +111,19 @@ parse-video-py serve --port 8000
 parse-video-py version
 ```
 
+### 抖音实况图浏览器兜底
+
+抖音公开分享接口有时只返回静态图。启用可选的浏览器依赖后，解析器会读取公开作品页，按图片 URI 补齐缺失的实况视频：
+
+```shell
+pip install -e ".[douyin-live]"
+python -m playwright install chromium
+```
+
+Linux 部署时，请用非 root 的服务账号运行支持 Chromium 沙箱的服务进程，并为该账号安装浏览器。若 API 本身以 root 运行，使用 `deploy/douyin-live.service` 单独运行浏览器 worker：把 `deploy/douyin_live_worker.py` 和 `src/parse_video_py/parser/douyin_live_page.py` 安装到 `/opt/douyin-live`，在该目录的 `venv` 安装 Playwright、FastAPI、Uvicorn 和 HTTPX，并以 worker 用户安装 Chromium。API 默认连接 `/run/douyin-live/browser.sock`，可用 `DOUYIN_LIVE_SOCKET` 指定其他路径。
+
+浏览器兜底不传账号 Cookie。未安装、繁忙、超时或作品页没有视频时，仍返回原有图片。排查时比较分享接口与桌面作品页同一图片的 URI 和视频字段，不用改签名逻辑，也不要把图集的背景音乐当作实况视频。
+
 ### 接口鉴权与抖音 Cookie 配置
 ```shell
 # 解析接口请求头 x-auth-token 的值；不设置时使用旧部署默认值
