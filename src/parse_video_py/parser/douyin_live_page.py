@@ -12,6 +12,9 @@ _log = logging.getLogger(__name__)
 _browser_slot = asyncio.Lock()
 _FRAME_PREFIX = "self.__pace_f.push("
 _DEFAULT_SOCKET = "/run/douyin-live/browser.sock"
+# The same work may use douyinvod locally and zjcdn on the production host.
+_CDN_SUFFIXES = (".douyinvod.com", ".zjcdn.com")
+_BROWSER_TIMEOUT = 12.0
 
 
 def _live_src(video: dict) -> str:
@@ -26,7 +29,7 @@ def _live_src(video: dict) -> str:
             url = urlsplit(src)
             if (
                 url.scheme == "https"
-                and (url.hostname or "").endswith(".douyinvod.com")
+                and (url.hostname or "").endswith(_CDN_SUFFIXES)
                 and not url.username
                 and not url.password
                 and url.port in (None, 443)
@@ -108,7 +111,9 @@ async def get_desktop_live_urls(work_id: str) -> dict[str, str]:
     if os.name == "posix" and socket_path and Path(socket_path).is_socket():
         try:
             transport = httpx.AsyncHTTPTransport(uds=socket_path, trust_env=False)
-            async with httpx.AsyncClient(transport=transport, timeout=10.0) as client:
+            async with httpx.AsyncClient(
+                transport=transport, timeout=_BROWSER_TIMEOUT + 2
+            ) as client:
                 response = await client.get(f"http://douyin-live/live/{work_id}")
                 response.raise_for_status()
                 urls = response.json()
@@ -142,35 +147,41 @@ async def read_desktop_live_urls(work_id: str) -> dict[str, str]:
             try:
                 page = await browser.new_page()
 
-                async def skip_media(route):
-                    # The metadata has the URLs; the worker doesn't download clips.
-                    if route.request.resource_type == "media":
+                async def skip_assets(route):
+                    # Reading hydration metadata needs neither images nor clips.
+                    if route.request.resource_type in {"image", "media", "font"}:
                         await route.abort()
                     else:
                         await route.continue_()
 
-                await page.route("**/*", skip_media)
+                await page.route("**/*", skip_assets)
                 response = await page.goto(
                     f"https://www.douyin.com/note/{work_id}",
-                    wait_until="domcontentloaded",
+                    # Slow page assets must not delay reading inline frames.
+                    wait_until="commit",
+                    timeout=7000,
                 )
                 if not response or not response.ok:
                     return {}
                 frames = await page.wait_for_function(
-                    """() => {
+                    """workId => {
                         const frames = Array.from(document.scripts, s => s.textContent)
                             .filter(s => s && s.startsWith("self.__pace_f.push(")
-                                && s.length < 4_000_000 && s.includes("clipType"));
+                                && s.length < 4_000_000 && s.includes("clipType")
+                                && s.includes(workId));
                         return frames.length ? frames : null;
-                    }"""
+                    }""",
+                    arg=work_id,
                 )
+                if urlsplit(page.url).hostname != "www.douyin.com":
+                    return {}
                 return _live_urls_from_frames(await frames.json_value(), work_id)
             finally:
                 await browser.close()
 
     async with _browser_slot:
         try:
-            urls = await asyncio.wait_for(read_page(), timeout=9)
+            urls = await asyncio.wait_for(read_page(), timeout=_BROWSER_TIMEOUT)
         except (asyncio.TimeoutError, BrowserError, OSError) as err:
             _log.info("Douyin desktop Live fallback unavailable: %s", type(err).__name__)
             return {}

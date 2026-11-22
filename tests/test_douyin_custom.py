@@ -20,10 +20,14 @@ def _desktop_frame(work_id, images):
 
 def test_desktop_live_frame_uses_only_matching_work_and_unique_live_images():
     clip = "https://v26-web.douyinvod.com/a/clip.mp4"
+    production_clip = "https://v5-hl-mly-ov.zjcdn.com/a/clip.mp4"
     video = {"playAddr": [{"src": clip}]}
     good = {"uri": "live", "clipType": 5, "video": video}
     frame = _desktop_frame("123", [
         good,
+        {"uri": "production", "clipType": 5, "video": {
+            "playAddr": [{"src": production_clip}]
+        }},
         {"uri": "still", "clipType": 2, "video": video},
         {"uri": "duplicated", "clipType": 3, "video": video},
         {"uri": "duplicated", "clipType": 2},
@@ -36,7 +40,7 @@ def test_desktop_live_frame_uses_only_matching_work_and_unique_live_images():
     ])
     assert _live_urls_from_frames(
         [_desktop_frame("999", [good]), "self.__pace_f.push(bad)", frame], "123"
-    ) == {"live": clip}
+    ) == {"live": clip, "production": production_clip}
 
 
 @pytest.mark.asyncio

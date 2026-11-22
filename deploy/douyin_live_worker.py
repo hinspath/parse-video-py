@@ -1,9 +1,12 @@
+import logging
+
 from fastapi import FastAPI, Path
 
 from douyin_live_page import read_desktop_live_urls
 
 
 # Private Unix socket only. This worker accepts a work ID, never a URL or cookie.
+logging.basicConfig(level=logging.INFO)
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 
